@@ -23,6 +23,8 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         roomName: sanitizedRoomName,
         privacy: 'public',
+        autoJoin: true,
+        showInviteBox: false,
         joinVideoOn: true,
         joinAudioOn: true,
         enableCamera: true,
