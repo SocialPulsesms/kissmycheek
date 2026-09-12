@@ -103,6 +103,19 @@ describe('optimizeSdpForNetwork', () => {
     expect(inserted).toContain('b=AS:2000');
     expect(inserted).toContain('b=TIAS:2000000');
 
+    const withConnection = [
+      'v=0',
+      'm=video 9 UDP/TLS/RTP/SAVPF 96',
+      'c=IN IP4 0.0.0.0',
+      'a=rtpmap:96 VP8/90000',
+      ''
+    ].join('\r\n');
+    const afterConnection = optimizeSdpForNetwork(withConnection, 1800);
+    const connectionIndex = afterConnection.indexOf('c=IN IP4 0.0.0.0');
+    const bandwidthIndex = afterConnection.indexOf('b=AS:1800');
+    expect(connectionIndex).toBeGreaterThan(-1);
+    expect(bandwidthIndex).toBeGreaterThan(connectionIndex);
+
     const withBandwidth = [
       'v=0',
       'm=video 9 UDP/TLS/RTP/SAVPF 96',

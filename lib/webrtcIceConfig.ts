@@ -77,8 +77,17 @@ export function optimizeSdpForNetwork(sdp: string, bitrateKbps: number = 3500): 
     if (modifiedSdp.includes('m=video')) {
       if (modifiedSdp.includes('b=AS:')) {
         modifiedSdp = modifiedSdp.replace(/b=AS:\d+/g, `b=AS:${bitrateKbps}`);
+      } else if (/m=video[^\r\n]+[\r\n]+c=[^\r\n]+/.test(modifiedSdp)) {
+        // RFC 4566: bandwidth lines must come after the connection line, never before it.
+        modifiedSdp = modifiedSdp.replace(
+          /(m=video[^\r\n]+[\r\n]+c=[^\r\n]+[\r\n]+)/,
+          `$1b=AS:${bitrateKbps}\r\nb=TIAS:${tiasBps}\r\n`
+        );
       } else {
-        modifiedSdp = modifiedSdp.replace(/(m=video[^\r\n]+[\r\n]+)/g, `$1b=AS:${bitrateKbps}\r\nb=TIAS:${tiasBps}\r\n`);
+        modifiedSdp = modifiedSdp.replace(
+          /(m=video[^\r\n]+[\r\n]+)/,
+          `$1b=AS:${bitrateKbps}\r\nb=TIAS:${tiasBps}\r\n`
+        );
       }
       if (modifiedSdp.includes('b=TIAS:')) {
         modifiedSdp = modifiedSdp.replace(/b=TIAS:\d+/g, `b=TIAS:${tiasBps}`);

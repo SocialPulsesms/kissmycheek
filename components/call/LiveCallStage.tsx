@@ -29,7 +29,7 @@ import { CreditsAndGiftingModal } from '@/components/ui/CreditsAndGiftingModal';
 import { BespokeGift } from '@/lib/creditsStore';
 import { getCanonicalRoomId } from '@/lib/callRoomId';
 import { callRingtone } from '@/lib/callRingtone';
-import { DEFAULT_RTC_CONFIGURATION, optimizeSdpForNetwork, KMC_LUXE_FILTERS, FilterKey, applyKmcSenderParameters } from '@/lib/webrtcIceConfig';
+import { DEFAULT_RTC_CONFIGURATION, KMC_LUXE_FILTERS, FilterKey, applyKmcSenderParameters } from '@/lib/webrtcIceConfig';
 
 export interface LiveCallStageProps {
   partnerId: string;
@@ -142,6 +142,8 @@ export function LiveCallStage({
   const remoteDescriptionSetRef = useRef<boolean>(false);
   const iceCandidateBufferRef = useRef<any[]>([]);
   const iceCandidateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const speakerMutedRef = useRef(false);
+  speakerMutedRef.current = speakerMuted;
   const endedRef = useRef(false);
   const callConnectedRef = useRef(false);
   const secondsElapsedRef = useRef(0);
@@ -241,6 +243,64 @@ export function LiveCallStage({
     return () => clearInterval(timer);
   }, [callConnected]);
 
+  const bindRemoteElements = () => {
+    const stream = remoteStreamRef.current;
+    if (!stream) return;
+
+    const playEl = (el: HTMLMediaElement | null) => {
+      if (!el) return;
+      if (el.srcObject !== stream) {
+        el.srcObject = stream;
+      }
+      el.muted = speakerMutedRef.current;
+      el.play().then(() => setAudioBlockedNotice(false)).catch(() => setAudioBlockedNotice(true));
+    };
+
+    playEl(remoteVideoRef.current);
+    playEl(remoteAudioRef.current);
+  };
+
+  const ingestRemoteTrack = (event: RTCTrackEvent) => {
+    event.track.enabled = true;
+
+    const inbound = event.streams && event.streams[0] ? event.streams[0] : null;
+    const existing = remoteStreamRef.current || new MediaStream();
+    const merged = new MediaStream();
+
+    const addTrack = (track: MediaStreamTrack) => {
+      if (!merged.getTracks().some((t) => t.id === track.id)) {
+        track.enabled = true;
+        merged.addTrack(track);
+      }
+    };
+
+    if (inbound) {
+      inbound.getTracks().forEach(addTrack);
+    }
+    existing.getTracks().forEach(addTrack);
+    addTrack(event.track);
+
+    remoteStreamRef.current = merged;
+
+    if (merged.getVideoTracks().some((t) => t.readyState !== 'ended')) {
+      setHasRemoteVideo(true);
+    }
+
+    setCallConnected(true);
+    setPartnerJoined(true);
+    setConnectionStatus('Connected');
+    if (stopRingbackRef.current) {
+      stopRingbackRef.current();
+      stopRingbackRef.current = null;
+    }
+
+    bindRemoteElements();
+    event.track.onunmute = () => {
+      if (event.track.kind === 'video') setHasRemoteVideo(true);
+      bindRemoteElements();
+    };
+  };
+
   // WebRTC Media & Signaling Initialization
   const initializeMediaAndSignaling = async (targetFacingMode: 'user' | 'environment' = 'user') => {
     try {
@@ -334,111 +394,79 @@ export function LiveCallStage({
       peerConnectionRef.current = pc;
 
       if (localStream) {
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream!));
-        applyKmcSenderParameters(pc, 'ultra');
+        localStream.getTracks().forEach((track) => {
+          track.enabled = true;
+          pc.addTrack(track, localStream!);
+        });
+      } else {
+        try {
+          pc.addTransceiver('audio', { direction: 'recvonly' });
+          pc.addTransceiver('video', { direction: 'recvonly' });
+        } catch {}
       }
 
-      try {
-        if (pc.getTransceivers().length === 0) {
-          pc.addTransceiver('audio', { direction: 'sendrecv' });
-          pc.addTransceiver('video', { direction: 'sendrecv' });
+      const flushIceCandidates = () => {
+        if (iceCandidateTimerRef.current) {
+          clearTimeout(iceCandidateTimerRef.current);
+          iceCandidateTimerRef.current = null;
         }
-      } catch (e) {}
-
-      pc.ontrack = (event) => {
-        if (!remoteStreamRef.current) {
-          remoteStreamRef.current = new MediaStream();
-        }
-
-        if (event.streams && event.streams[0]) {
-          event.streams[0].getTracks().forEach(track => {
-            if (!remoteStreamRef.current!.getTracks().some(t => t.id === track.id)) {
-              remoteStreamRef.current!.addTrack(track);
-            }
-          });
-        }
-        if (event.track) {
-          if (!remoteStreamRef.current.getTracks().some(t => t.id === event.track.id)) {
-            remoteStreamRef.current.addTrack(event.track);
-          }
-        }
-
-        if (event.track.kind === 'video') setHasRemoteVideo(true);
-
-        event.track.onunmute = () => {
-          if (event.track.kind === 'video') setHasRemoteVideo(true);
-          if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
-            remoteVideoRef.current.srcObject = remoteStreamRef.current;
-          }
-          if (remoteAudioRef.current && remoteAudioRef.current.srcObject !== remoteStreamRef.current) {
-            remoteAudioRef.current.srcObject = remoteStreamRef.current;
-          }
-          remoteVideoRef.current?.play().catch(() => {});
-          remoteAudioRef.current?.play().catch(() => {});
-        };
-
-        if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
-          remoteVideoRef.current.srcObject = remoteStreamRef.current;
-        }
-        if (remoteAudioRef.current && remoteAudioRef.current.srcObject !== remoteStreamRef.current) {
-          remoteAudioRef.current.srcObject = remoteStreamRef.current;
-        }
-
-        remoteVideoRef.current?.play().catch(() => {});
-        remoteAudioRef.current?.play().then(() => {
-          setAudioBlockedNotice(false);
-        }).catch(() => {
-          setAudioBlockedNotice(true);
-        });
-
-        setCallConnected(true);
-        setPartnerJoined(true);
-        
-        if (stopRingbackRef.current) {
-          stopRingbackRef.current();
-          stopRingbackRef.current = null;
-        }
-        setConnectionStatus('Connected');
+        const batch = iceCandidateBufferRef.current.splice(0);
+        if (batch.length === 0) return;
+        const candidates = batch.map((c: RTCIceCandidate) => ({
+          candidate: c.candidate,
+          sdpMid: c.sdpMid,
+          sdpMLineIndex: c.sdpMLineIndex,
+          usernameFragment: c.usernameFragment
+        }));
+        fetch('/api/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          keepalive: true,
+          body: JSON.stringify({
+            action: 'ice_candidate_batch',
+            roomId: canonicalRoom,
+            peerId: currentPeerId,
+            role: peerRoleRef.current,
+            candidates
+          })
+        }).catch(() => {});
       };
+
+      pc.ontrack = ingestRemoteTrack;
 
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           iceCandidateBufferRef.current.push(event.candidate);
           if (!iceCandidateTimerRef.current) {
-            iceCandidateTimerRef.current = setTimeout(() => {
-              const batch = [...iceCandidateBufferRef.current];
-              iceCandidateBufferRef.current = [];
-              iceCandidateTimerRef.current = null;
-              if (batch.length > 0) {
-                fetch('/api/call', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  keepalive: true,
-                  body: JSON.stringify({
-                    action: 'ice_candidate_batch',
-                    roomId: canonicalRoom,
-                    peerId: currentPeerId,
-                    role: peerRoleRef.current,
-                    candidates: batch
-                  })
-                }).catch(() => {});
-              }
-            }, 80);
+            iceCandidateTimerRef.current = setTimeout(flushIceCandidates, 50);
           }
+        } else {
+          flushIceCandidates();
+        }
+      };
+
+      pc.onicegatheringstatechange = () => {
+        if (pc.iceGatheringState === 'complete') {
+          flushIceCandidates();
         }
       };
 
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
         if (state === 'connected') {
-          setCallConnected(true);
-          setPartnerJoined(true);
           applyKmcSenderParameters(pc, 'high');
+          setPartnerJoined(true);
+          if (remoteStreamRef.current?.getTracks().length) {
+            setCallConnected(true);
+            setConnectionStatus('Connected');
+            bindRemoteElements();
+          } else {
+            setConnectionStatus('Connecting media...');
+          }
           if (stopRingbackRef.current) {
             stopRingbackRef.current();
             stopRingbackRef.current = null;
           }
-          setConnectionStatus('Connected');
         } else if (state === 'failed') {
           setConnectionStatus('Reconnecting...');
         }
@@ -447,18 +475,23 @@ export function LiveCallStage({
       pc.oniceconnectionstatechange = () => {
         const state = pc.iceConnectionState;
         if (state === 'connected' || state === 'completed') {
-          setCallConnected(true);
-          setPartnerJoined(true);
           applyKmcSenderParameters(pc, 'high');
+          setPartnerJoined(true);
+          if (remoteStreamRef.current?.getTracks().length) {
+            setCallConnected(true);
+            setConnectionStatus('Connected');
+            bindRemoteElements();
+          } else {
+            setConnectionStatus('Connecting media...');
+          }
           if (stopRingbackRef.current) {
             stopRingbackRef.current();
             stopRingbackRef.current = null;
           }
-          setConnectionStatus('Connected');
         } else if (state === 'failed' && peerRoleRef.current === 'caller') {
           pc.createOffer({ iceRestart: true }).then(async (newOffer) => {
-            const optimizedSdp = optimizeSdpForNetwork(newOffer.sdp || '');
-            await pc.setLocalDescription({ type: newOffer.type, sdp: optimizedSdp });
+            await pc.setLocalDescription(newOffer);
+            const local = pc.localDescription;
             await fetch('/api/call', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -467,8 +500,8 @@ export function LiveCallStage({
                 action: 'send_offer',
                 roomId: canonicalRoom,
                 peerId: currentPeerId,
-                offer: { type: newOffer.type, sdp: optimizedSdp },
-                sdp: { type: newOffer.type, sdp: optimizedSdp }
+                offer: local ? { type: local.type, sdp: local.sdp } : { type: newOffer.type, sdp: newOffer.sdp },
+                sdp: local ? { type: local.type, sdp: local.sdp } : { type: newOffer.type, sdp: newOffer.sdp }
               })
             });
           }).catch(() => {});
@@ -528,8 +561,8 @@ export function LiveCallStage({
           offerToReceiveAudio: true,
           offerToReceiveVideo: true
         });
-        const optimizedSdp = optimizeSdpForNetwork(offer.sdp || '');
-        await pc.setLocalDescription({ type: offer.type, sdp: optimizedSdp });
+        await pc.setLocalDescription(offer);
+        const localOffer = pc.localDescription || offer;
 
         await fetch('/api/call', {
           method: 'POST',
@@ -538,8 +571,8 @@ export function LiveCallStage({
             action: 'offer',
             roomId: canonicalRoom,
             peerId: currentPeerId,
-            offer: { type: offer.type, sdp: optimizedSdp },
-            sdp: { type: offer.type, sdp: optimizedSdp }
+            offer: { type: localOffer.type, sdp: localOffer.sdp },
+            sdp: { type: localOffer.type, sdp: localOffer.sdp }
           })
         });
       } else {
@@ -592,12 +625,12 @@ export function LiveCallStage({
 
           if (peerRoleRef.current === 'callee' && pollData.offer && !pc.currentRemoteDescription) {
             try {
-              await pc.setRemoteDescription(new RTCSessionDescription(pollData.offer));
+              await pc.setRemoteDescription(pollData.offer);
               remoteDescriptionSetRef.current = true;
 
               const answer = await pc.createAnswer();
-              const optimizedSdp = optimizeSdpForNetwork(answer.sdp || '');
-              await pc.setLocalDescription({ type: answer.type, sdp: optimizedSdp });
+              await pc.setLocalDescription(answer);
+              const localAnswer = pc.localDescription || answer;
 
               await fetch('/api/call', {
                 method: 'POST',
@@ -606,50 +639,47 @@ export function LiveCallStage({
                   action: 'answer',
                   roomId: canonicalRoom,
                   peerId: currentPeerId,
-                  answer: { type: answer.type, sdp: optimizedSdp },
-                  sdp: { type: answer.type, sdp: optimizedSdp }
+                  answer: { type: localAnswer.type, sdp: localAnswer.sdp },
+                  sdp: { type: localAnswer.type, sdp: localAnswer.sdp }
                 })
               });
-
-              applyKmcSenderParameters(pc, 'high');
 
               while (pendingCandidatesRef.current.length > 0) {
                 const cand = pendingCandidatesRef.current.shift();
                 if (cand && (cand.candidate || cand.sdpMid !== undefined)) {
                   try {
-                    await pc.addIceCandidate(new RTCIceCandidate(cand));
+                    await pc.addIceCandidate(cand);
                   } catch (ce) {}
                 }
               }
 
-              setConnectionStatus('Connected');
               setPartnerJoined(true);
-              setCallConnected(true);
+              setConnectionStatus(remoteStreamRef.current?.getTracks().length ? 'Connected' : 'Connecting media...');
+              bindRemoteElements();
             } catch (e) {}
           }
 
           if (peerRoleRef.current === 'caller' && pollData.answer && !pc.currentRemoteDescription) {
             try {
-              await pc.setRemoteDescription(new RTCSessionDescription(pollData.answer));
+              await pc.setRemoteDescription(pollData.answer);
               remoteDescriptionSetRef.current = true;
-              applyKmcSenderParameters(pc, 'high');
 
               while (pendingCandidatesRef.current.length > 0) {
                 const cand = pendingCandidatesRef.current.shift();
                 if (cand && (cand.candidate || cand.sdpMid !== undefined)) {
                   try {
-                    await pc.addIceCandidate(new RTCIceCandidate(cand));
+                    await pc.addIceCandidate(cand);
                   } catch (ce) {}
                 }
               }
 
-              setConnectionStatus('Connected');
               setPartnerJoined(true);
-              setCallConnected(true);
+              setConnectionStatus(remoteStreamRef.current?.getTracks().length ? 'Connected' : 'Connecting media...');
               if (stopRingbackRef.current) {
                 stopRingbackRef.current();
                 stopRingbackRef.current = null;
               }
+              bindRemoteElements();
             } catch (e) {}
           }
 
@@ -724,8 +754,9 @@ export function LiveCallStage({
   };
 
   const unlockAudio = () => {
-    if (remoteAudioRef.current) remoteAudioRef.current.play().then(() => setAudioBlockedNotice(false)).catch(() => {});
-    if (remoteVideoRef.current) remoteVideoRef.current.play().then(() => setAudioBlockedNotice(false)).catch(() => {});
+    speakerMutedRef.current = false;
+    setSpeakerMuted(false);
+    bindRemoteElements();
   };
 
   useEffect(() => {
@@ -748,13 +779,8 @@ export function LiveCallStage({
   }, [useLiveMedia, cameraOff, isSwappedView, callMode, localMediaStream]);
 
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStreamRef.current) {
-      if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
-        remoteVideoRef.current.srcObject = remoteStreamRef.current;
-      }
-      remoteVideoRef.current.play().catch(() => {});
-    }
-  }, [isSwappedView, callConnected, hasRemoteVideo, callMode]);
+    bindRemoteElements();
+  }, [isSwappedView, callConnected, hasRemoteVideo, callMode, speakerMuted]);
 
   useEffect(() => {
     endedRef.current = false;
@@ -1035,13 +1061,20 @@ export function LiveCallStage({
         paddingBottom: 'max(env(safe-area-inset-bottom), 3.25rem)'
       }}
     >
-      {/* Background Remote Voice Audio Stream */}
-      <audio 
-        ref={remoteAudioRef} 
-        autoPlay 
-        playsInline 
+      {/* Remote audio — keep in-document so mobile WebViews do not discard playback */}
+      <audio
+        ref={(el) => {
+          remoteAudioRef.current = el;
+          if (el) {
+            el.setAttribute('playsinline', 'true');
+            el.setAttribute('webkit-playsinline', 'true');
+            bindRemoteElements();
+          }
+        }}
+        autoPlay
+        playsInline
         muted={speakerMuted}
-        style={{ position: 'fixed', top: -9999, left: -9999, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} 
+        className="absolute w-px h-px overflow-hidden opacity-0 pointer-events-none"
       />
 
       {/* FLOATING REAL-TIME REACTIONS PARTICLES */}
@@ -1108,9 +1141,10 @@ export function LiveCallStage({
               <video
                 ref={(el) => {
                   remoteVideoRef.current = el;
-                  if (el && remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
-                    el.srcObject = remoteStreamRef.current;
-                    el.play().catch(() => {});
+                  if (el) {
+                    el.setAttribute('playsinline', 'true');
+                    el.setAttribute('webkit-playsinline', 'true');
+                    bindRemoteElements();
                   }
                 }}
                 autoPlay
@@ -1118,12 +1152,12 @@ export function LiveCallStage({
                 muted={speakerMuted}
                 style={{ filter: KMC_LUXE_FILTERS[activeFilter].filter }}
                 className={`w-full h-full object-cover transition-all duration-500 ${
-                  callConnected && hasRemoteVideo && !partnerCameraOff ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                  hasRemoteVideo && !partnerCameraOff ? 'opacity-100' : 'opacity-0 pointer-events-none'
                 }`}
               />
 
               {/* WhatsApp-Style Calling & Ringing Avatar Screen */}
-              {(!callConnected || !hasRemoteVideo || partnerCameraOff) && (
+              {(!hasRemoteVideo || partnerCameraOff) && (
                 <div className="relative w-full h-full flex flex-col items-center justify-center z-10 bg-[#07070A] overflow-hidden">
                   {/* Blurred Ambient Wallpaper */}
                   {profile.photos?.[0] ? (
