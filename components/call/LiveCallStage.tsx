@@ -134,6 +134,9 @@ export function LiveCallStage({
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
+  const [remoteVideoPlaying, setRemoteVideoPlaying] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(true);
+  const [cameraError, setCameraError] = useState<string | null>(null);
   const roomIdRef = useRef<string>('');
   const peerIdRef = useRef<string>('');
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -241,6 +244,108 @@ export function LiveCallStage({
     return () => clearInterval(timer);
   }, [callConnected]);
 
+  // Dedicated, cascade-resilient camera & mic acquisition with user gesture retry support
+  const requestLocalMedia = async (targetFacingMode: 'user' | 'environment' = facingMode): Promise<MediaStream | null> => {
+    setCameraStarting(true);
+    setCameraError(null);
+    let stream: MediaStream | null = null;
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setCameraStarting(false);
+      setCameraError('Camera API unavailable on device');
+      return null;
+    }
+
+    const cascades: MediaStreamConstraints[] = [
+      {
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        video: { facingMode: targetFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
+      },
+      {
+        audio: true,
+        video: { facingMode: targetFacingMode }
+      },
+      {
+        audio: true,
+        video: true
+      },
+      {
+        video: { facingMode: targetFacingMode }
+      },
+      {
+        video: true
+      }
+    ];
+
+    for (const constraint of cascades) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraint);
+        if (stream) break;
+      } catch (err) {
+        // try next fallback in cascade
+      }
+    }
+
+    // Audio-only fallback if video was denied or busy
+    if (!stream) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        console.warn('Audio fallback also failed:', err);
+      }
+    }
+
+    if (stream) {
+      const hasVideo = stream.getVideoTracks().length > 0;
+      if (!hasVideo) {
+        setCameraError('Camera disabled • Tap to allow');
+      } else {
+        setCameraError(null);
+      }
+
+      if (callMode === 'voice' || cameraOff) {
+        stream.getVideoTracks().forEach(track => {
+          track.enabled = false;
+        });
+      }
+
+      localStreamRef.current = stream;
+      setLocalMediaStream(stream);
+
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play().catch(() => {});
+      }
+
+      setupAudioMeter(stream);
+      setUseLiveMedia(true);
+      setCameraStarting(false);
+
+      // Attach or replace tracks on active RTCPeerConnection if already initialized
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        const currentSenders = pc.getSenders();
+        stream.getTracks().forEach(track => {
+          const matchingSender = currentSenders.find(s => s.track?.kind === track.kind) || currentSenders.find(s => !s.track);
+          if (matchingSender) {
+            matchingSender.replaceTrack(track).catch(() => {});
+          } else {
+            try {
+              pc.addTrack(track, stream!);
+            } catch (e) {}
+          }
+        });
+        applyKmcSenderParameters(pc, 'ultra');
+      }
+
+      return stream;
+    } else {
+      setCameraStarting(false);
+      setCameraError('Tap to enable camera');
+      return null;
+    }
+  };
+
   // WebRTC Media & Signaling Initialization
   const initializeMediaAndSignaling = async (targetFacingMode: 'user' | 'environment' = 'user') => {
     try {
@@ -268,58 +373,8 @@ export function LiveCallStage({
 
       remoteStreamRef.current = new MediaStream();
 
-      let localStream: MediaStream | null = null;
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          },
-          video: {
-            facingMode: targetFacingMode,
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        });
-      } catch (e1) {
-        try {
-          localStream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
-            video: { facingMode: targetFacingMode }
-          });
-        } catch (e2) {
-          try {
-            localStream = await navigator.mediaDevices.getUserMedia({
-              audio: true,
-              video: true
-            });
-          } catch (e3) {
-            try {
-              localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            } catch (e4) {
-              console.warn('Local media stream capture unavailable:', e4);
-            }
-          }
-        }
-      }
-
-      if (localStream) {
-        if (callMode === 'voice' || cameraOff) {
-          localStream.getVideoTracks().forEach(track => {
-            track.enabled = false;
-          });
-        }
-        localStreamRef.current = localStream;
-        setLocalMediaStream(localStream);
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = localStream;
-          localVideoRef.current.play().catch(() => {});
-        }
-        setupAudioMeter(localStream);
-        setUseLiveMedia(true);
-        setConnectionStatus('Connecting...');
-      }
+      // Acquire camera & audio with progressive resilience
+      const localStream = await requestLocalMedia(targetFacingMode);
 
       let rtcConfig: RTCConfiguration = DEFAULT_RTC_CONFIGURATION;
       try {
@@ -363,19 +418,30 @@ export function LiveCallStage({
           }
         }
 
-        if (event.track.kind === 'video') setHasRemoteVideo(true);
+        if (event.track.kind === 'video') {
+          setHasRemoteVideo(true);
+          event.track.onunmute = () => {
+            setHasRemoteVideo(true);
+            if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
+              remoteVideoRef.current.srcObject = remoteStreamRef.current;
+            }
+            remoteVideoRef.current?.play().then(() => {
+              setRemoteVideoPlaying(true);
+            }).catch(() => {});
+          };
+          event.track.onmute = () => {
+            setRemoteVideoPlaying(false);
+          };
+        }
 
-        event.track.onunmute = () => {
-          if (event.track.kind === 'video') setHasRemoteVideo(true);
-          if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
-            remoteVideoRef.current.srcObject = remoteStreamRef.current;
-          }
-          if (remoteAudioRef.current && remoteAudioRef.current.srcObject !== remoteStreamRef.current) {
-            remoteAudioRef.current.srcObject = remoteStreamRef.current;
-          }
-          remoteVideoRef.current?.play().catch(() => {});
-          remoteAudioRef.current?.play().catch(() => {});
-        };
+        if (event.track.kind === 'audio') {
+          event.track.onunmute = () => {
+            if (remoteAudioRef.current && remoteAudioRef.current.srcObject !== remoteStreamRef.current) {
+              remoteAudioRef.current.srcObject = remoteStreamRef.current;
+            }
+            remoteAudioRef.current?.play().catch(() => {});
+          };
+        }
 
         if (remoteVideoRef.current && remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
           remoteVideoRef.current.srcObject = remoteStreamRef.current;
@@ -384,7 +450,10 @@ export function LiveCallStage({
           remoteAudioRef.current.srcObject = remoteStreamRef.current;
         }
 
-        remoteVideoRef.current?.play().catch(() => {});
+        remoteVideoRef.current?.play().then(() => {
+          setRemoteVideoPlaying(true);
+        }).catch(() => {});
+
         remoteAudioRef.current?.play().then(() => {
           setAudioBlockedNotice(false);
         }).catch(() => {
@@ -824,15 +893,20 @@ export function LiveCallStage({
     }
   };
 
-  const toggleCamera = () => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach(track => {
-        track.enabled = cameraOff;
-      });
-      const nextState = !cameraOff;
-      setCameraOff(nextState);
-      sendCallEvent('media_state', { cameraOff: nextState });
+  const toggleCamera = async () => {
+    if (!localStreamRef.current || localStreamRef.current.getVideoTracks().length === 0) {
+      await requestLocalMedia(facingMode);
+      setCameraOff(false);
+      sendCallEvent('media_state', { cameraOff: false });
+      return;
     }
+
+    const nextState = !cameraOff;
+    localStreamRef.current.getVideoTracks().forEach(track => {
+      track.enabled = !nextState;
+    });
+    setCameraOff(nextState);
+    sendCallEvent('media_state', { cameraOff: nextState });
   };
 
   const switchCallMode = async (newMode: 'voice' | 'video') => {
@@ -896,8 +970,13 @@ export function LiveCallStage({
   };
 
   const handleFlipCamera = async () => {
-    if (!localStreamRef.current || !peerConnectionRef.current) return;
     const nextFacing = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextFacing);
+
+    if (!localStreamRef.current || !peerConnectionRef.current) {
+      await requestLocalMedia(nextFacing);
+      return;
+    }
     try {
       const fresh = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -921,8 +1000,9 @@ export function LiveCallStage({
         localVideoRef.current.srcObject = localStreamRef.current;
         localVideoRef.current.play().catch(() => {});
       }
-      setFacingMode(nextFacing);
-    } catch {}
+    } catch {
+      await requestLocalMedia(nextFacing);
+    }
   };
 
   const toggleSpeaker = () => {
@@ -1136,14 +1216,17 @@ export function LiveCallStage({
                 autoPlay
                 playsInline
                 muted={speakerMuted}
+                onPlaying={() => setRemoteVideoPlaying(true)}
+                onLoadedData={() => setRemoteVideoPlaying(true)}
+                onPause={() => setRemoteVideoPlaying(false)}
                 style={{ filter: KMC_LUXE_FILTERS[activeFilter].filter }}
                 className={`w-full h-full object-cover transition-all duration-500 ${
-                  callConnected && hasRemoteVideo && !partnerCameraOff ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                  callConnected && hasRemoteVideo && remoteVideoPlaying && !partnerCameraOff ? 'opacity-100' : 'opacity-0 pointer-events-none'
                 }`}
               />
 
               {/* WhatsApp-Style Calling & Ringing Avatar Screen */}
-              {(!callConnected || !hasRemoteVideo || partnerCameraOff) && (
+              {(!callConnected || !hasRemoteVideo || !remoteVideoPlaying || partnerCameraOff) && (
                 <div className="relative w-full h-full flex flex-col items-center justify-center z-10 bg-[#07070A] overflow-hidden">
                   {/* Blurred Ambient Wallpaper */}
                   {profile.photos?.[0] ? (
@@ -1189,12 +1272,16 @@ export function LiveCallStage({
                       {profile.name}
                     </h3>
                     <p className="text-xs text-[#E5C378] tracking-widest uppercase font-semibold mb-3">
-                      {partnerCameraOff && callConnected ? 'Camera Off • HD Voice' : (peerRole === 'caller' && !callConnected ? 'Ringing...' : 'Encrypted Video Date')}
+                      {partnerCameraOff && callConnected
+                        ? 'Camera Off • HD Voice'
+                        : callConnected
+                        ? (hasRemoteVideo && !remoteVideoPlaying ? 'Connecting Video Feed...' : 'Encrypted Video Date')
+                        : (peerRole === 'caller' && !callConnected ? 'Ringing...' : 'Encrypted Video Date')}
                     </p>
 
                     <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-black/80 border border-[#D4AF37]/35 backdrop-blur-xl text-xs text-neutral-200 shadow-xl">
                       <span className={`w-2 h-2 rounded-full ${callConnected ? 'bg-emerald-400 animate-pulse' : 'bg-[#D4AF37] animate-ping'}`} />
-                      <span>{callConnected ? (partnerCameraOff ? 'Connected (Audio Only)' : 'Connected') : (peerRole === 'caller' ? 'Calling member...' : 'Connecting...')}</span>
+                      <span>{callConnected ? (partnerCameraOff ? 'Connected (Audio Only)' : (!remoteVideoPlaying ? 'Connected • Initializing video' : 'Connected')) : (peerRole === 'caller' ? 'Calling member...' : 'Connecting...')}</span>
                     </div>
                   </div>
                 </div>
@@ -1211,12 +1298,17 @@ export function LiveCallStage({
             <div
               onClick={(e) => {
                 e.stopPropagation();
-                setIsSwappedView(!isSwappedView);
+                if (!localMediaStream || cameraError) {
+                  // Direct user tap to start or retry camera!
+                  requestLocalMedia(facingMode);
+                } else {
+                  setIsSwappedView(!isSwappedView);
+                }
               }}
-              className={`transition-all duration-500 overflow-hidden ${
+              className={`transition-all duration-500 overflow-hidden cursor-pointer ${
                 isSwappedView
                   ? 'absolute inset-0 w-full h-full z-0'
-                  : 'absolute right-3.5 sm:right-6 top-28 sm:top-28 z-30 w-28 sm:w-36 h-40 sm:h-48 rounded-2xl border-2 border-[#D4AF37] shadow-[0_10px_35px_rgba(0,0,0,0.9)] bg-[#0E0E14] cursor-pointer'
+                  : 'absolute right-3.5 sm:right-6 top-28 sm:top-28 z-30 w-28 sm:w-36 h-40 sm:h-48 rounded-2xl border-2 border-[#D4AF37] shadow-[0_10px_35px_rgba(0,0,0,0.9)] bg-[#0E0E14]'
               }`}
             >
               {/* Live Camera Video Feed with direct ref binding */}
@@ -1237,20 +1329,33 @@ export function LiveCallStage({
                 }`}
               />
 
-              {/* Camera Off or Loading Placeholder */}
-              <div className={`w-full h-full bg-[#111116] flex flex-col items-center justify-center p-2 text-center ${
+              {/* Camera Off or Loading / Tap-to-Enable Placeholder */}
+              <div className={`w-full h-full bg-[#111116] flex flex-col items-center justify-center p-2 text-center select-none ${
                 localMediaStream && !cameraOff ? 'hidden' : 'flex'
               }`}>
-                <div className="w-8 h-8 rounded-full bg-[#D4AF37]/20 border border-[#D4AF37]/50 flex items-center justify-center mb-1">
-                  <Crown className="w-4 h-4 text-[#D4AF37]" />
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center mb-1.5 transition-all ${
+                  cameraStarting ? 'bg-[#D4AF37]/20 border border-[#D4AF37]/50 animate-pulse' : 'bg-[#D4AF37] text-black shadow-[0_0_15px_rgba(212,175,55,0.5)]'
+                }`}>
+                  <Crown className={`w-4 h-4 ${cameraStarting ? 'text-[#D4AF37]' : 'text-black'}`} />
                 </div>
-                <span className="text-[10px] text-white/80 font-medium">{cameraOff ? 'Camera Off' : 'Starting camera...'}</span>
+                <span className="text-[10px] text-white/90 font-medium leading-tight px-1">
+                  {cameraOff
+                    ? 'Camera Off'
+                    : cameraStarting
+                    ? 'Starting camera...'
+                    : (cameraError || 'Tap to enable camera')}
+                </span>
+                {!localMediaStream && !cameraStarting && (
+                  <span className="mt-1 text-[8px] uppercase tracking-wider text-[#D4AF37] font-semibold bg-[#D4AF37]/15 px-2 py-0.5 rounded-full border border-[#D4AF37]/30 animate-pulse">
+                    Tap to start
+                  </span>
+                )}
               </div>
 
               {!isSwappedView && (
                 <span className="absolute bottom-1.5 left-1.5 text-[8px] font-bold bg-black/85 px-2 py-0.5 rounded-full text-white backdrop-blur-md border border-white/10 flex items-center gap-1">
                   <span className={`w-1.5 h-1.5 rounded-full ${localMediaStream && !cameraOff ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                  <span>You (Tap to swap)</span>
+                  <span>{localMediaStream && !cameraOff ? 'You (Tap to swap)' : 'You (Tap to start)'}</span>
                 </span>
               )}
             </div>

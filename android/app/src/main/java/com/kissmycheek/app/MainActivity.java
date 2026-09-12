@@ -41,6 +41,41 @@ public class MainActivity extends BridgeActivity {
                     settings.setJavaScriptEnabled(true);
                     settings.setDomStorageEnabled(true);
                     settings.setDatabaseEnabled(true);
+                    settings.setAllowFileAccess(true);
+                    settings.setAllowContentAccess(true);
+
+                    // Ensure Android WebView WebChromeClient unconditionally grants camera & mic for WebRTC
+                    getBridge().getWebView().setWebChromeClient(new com.getcapacitor.BridgeWebChromeClient(getBridge()) {
+                        @Override
+                        public void onPermissionRequest(final android.webkit.PermissionRequest request) {
+                            runOnUiThread(() -> {
+                                try {
+                                    boolean hasCamera = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+                                    boolean hasAudio = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+
+                                    if (!hasCamera || !hasAudio) {
+                                        ActivityCompat.requestPermissions(
+                                            MainActivity.this,
+                                            new String[]{
+                                                Manifest.permission.CAMERA,
+                                                Manifest.permission.RECORD_AUDIO
+                                            },
+                                            PERM_REQUEST_CODE
+                                        );
+                                    }
+
+                                    request.grant(request.getResources());
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                }
+                            });
+                        }
+
+                        @Override
+                        public void onPermissionRequestCanceled(android.webkit.PermissionRequest request) {
+                            super.onPermissionRequestCanceled(request);
+                        }
+                    });
 
                     // Prevent any white flips / flashes when webview initializes
                     getBridge().getWebView().setBackgroundColor(android.graphics.Color.parseColor("#050507"));
@@ -129,8 +164,7 @@ public class MainActivity extends BridgeActivity {
                 this,
                 new String[]{
                     Manifest.permission.CAMERA,
-                    Manifest.permission.RECORD_AUDIO,
-                    Manifest.permission.MODIFY_AUDIO_SETTINGS
+                    Manifest.permission.RECORD_AUDIO
                 },
                 PERM_REQUEST_CODE
             );
