@@ -996,7 +996,7 @@ export function LiveCallStage({
             </p>
 
             {/* Tap to Activate Camera & Audio Helper if permission blocked */}
-            {mediaPermissionError && (
+            {!isMediaStarting && mediaPermissionError && !localStream && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
