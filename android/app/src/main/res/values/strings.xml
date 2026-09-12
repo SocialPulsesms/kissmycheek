@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Kiss My Cheek</string>
+    <string name="title_activity_main">Kiss My Cheek</string>
+    <string name="package_name">com.kissmycheek.app</string>
+    <string name="custom_url_scheme">com.kissmycheek.app</string>
+</resources>

@@ -1,0 +1,240 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  MEMBER
+  VIP
+  ADMIN
+}
+
+enum MembershipTier {
+  ESSENTIAL
+  PREMIUM
+  ELITE
+}
+
+model User {
+  id               String         @id @default(uuid())
+  email            String         @unique
+  passwordHash     String
+  role             Role           @default(MEMBER)
+  membershipTier   MembershipTier @default(ESSENTIAL)
+  isVerified       Boolean        @default(false)
+  incognitoMode    Boolean        @default(false)
+  boostActive      Boolean        @default(false)
+  boostExpiresAt   DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  profile          Profile?
+  sentLikes        Like[]         @relation("SentLikes")
+  receivedLikes    Like[]         @relation("ReceivedLikes")
+  matchesAsUser1   Match[]        @relation("MatchesUser1")
+  matchesAsUser2   Match[]        @relation("MatchesUser2")
+  notifications    Notification[]
+  subscriptions    Subscription[]
+  eventsAttended   EventAttendee[]
+  reportsFiled     Report[]       @relation("Reporter")
+  reportedBy       Report[]       @relation("ReportedUser")
+  blockedUsers     Block[]        @relation("Blocker")
+  blockedBy        Block[]        @relation("BlockedUser")
+  boosts           ProfileBoost[]
+}
+
+model Profile {
+  id                 String     @id @default(uuid())
+  userId             String     @unique
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName           String
+  customName         String?
+  dob                String
+  gender             String
+  pronouns           String?
+  location           String
+  bio                String
+  occupation         String
+  education          String
+  height             String?
+  relationshipGoals  String
+  interestedIn       String
+  ageMin             Int        @default(21)
+  ageMax             Int        @default(45)
+  distancePref       Int        @default(50)
+  verifiedBadge      Boolean    @default(false)
+  compatibilityScore Int        @default(88)
+
+  photos             Photo[]
+  interests          Interest[]
+}
+
+model Photo {
+  id        String   @id @default(uuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  url       String
+  isCover   Boolean  @default(false)
+  order     Int      @default(0)
+}
+
+model Interest {
+  id        String   @id @default(uuid())
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  category  String
+  name      String
+}
+
+model Like {
+  id          String   @id @default(uuid())
+  senderId    String
+  sender      User     @relation("SentLikes", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId  String
+  receiver    User     @relation("ReceivedLikes", fields: [receiverId], references: [id], onDelete: Cascade)
+  isSuperLike Boolean  @default(false)
+  isPassed    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@unique([senderId, receiverId])
+}
+
+model Match {
+  id        String   @id @default(uuid())
+  user1Id   String
+  user1     User     @relation("MatchesUser1", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2Id   String
+  user2     User     @relation("MatchesUser2", fields: [user2Id], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([user1Id, user2Id])
+}
+
+model Conversation {
+  id        String    @id @default(uuid())
+  user1Id   String
+  user2Id   String
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  content        String
+  mediaUrl       String?
+  isVoiceNote    Boolean      @default(false)
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Subscription {
+  id               String         @id @default(uuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  planTier         MembershipTier
+  billingCycle     String
+  status           String
+  currentPeriodEnd DateTime
+  createdAt        DateTime       @default(now())
+}
+
+model Event {
+  id           String          @id @default(uuid())
+  title        String
+  subtitle     String
+  category     String
+  date         String
+  time         String
+  location     String
+  image        String
+  price        String
+  description  String
+  maxAttendees Int
+  attendees    EventAttendee[]
+}
+
+model EventAttendee {
+  id        String   @id @default(uuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    String   @default("CONFIRMED")
+  rsvpDate  DateTime @default(now())
+
+  @@unique([eventId, userId])
+}
+
+model Report {
+  id             String   @id @default(uuid())
+  reporterId     String
+  reporter       User     @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reportedUserId String
+  reportedUser   User     @relation("ReportedUser", fields: [reportedUserId], references: [id], onDelete: Cascade)
+  reason         String
+  details        String
+  status         String   @default("PENDING")
+  createdAt      DateTime @default(now())
+}
+
+model Block {
+  id            String   @id @default(uuid())
+  blockerId     String
+  blocker       User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedUserId String
+  blockedUser   User     @relation("BlockedUser", fields: [blockedUserId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@unique([blockerId, blockedUserId])
+}
+
+model ProfileBoost {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  durationMinutes Int
+  multiplier      Int      @default(10)
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+}
+
+model CallSession {
+  id         String   @id @default(uuid())
+  callerId   String
+  receiverId String
+  sdpOffer   String?
+  sdpAnswer  String?
+  candidates String?
+  status     String   @default("RINGING")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model CallHistory {
+  id         String   @id @default(uuid())
+  callerId   String
+  receiverId String
+  duration   Int
+  outcome    String   @default("COMPLETED")
+  createdAt  DateTime @default(now())
+}

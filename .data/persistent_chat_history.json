@@ -1,0 +1,119 @@
+[
+  {
+    "id": "th_2fdb6cc5-db71-43d5-8383-267979c28874__51efaf9d-f98d-4495-b428-2c56a552ed9f",
+    "user1Id": "2fdb6cc5-db71-43d5-8383-267979c28874",
+    "user2Id": "51efaf9d-f98d-4495-b428-2c56a552ed9f",
+    "participants": {
+      "51efaf9d-f98d-4495-b428-2c56a552ed9f": {
+        "id": "51efaf9d-f98d-4495-b428-2c56a552ed9f",
+        "name": "Just Test",
+        "photos": [],
+        "location": "London",
+        "occupation": "Verified Member",
+        "age": 28,
+        "online": true
+      },
+      "2fdb6cc5-db71-43d5-8383-267979c28874": {
+        "id": "2fdb6cc5-db71-43d5-8383-267979c28874",
+        "name": "Lord henry",
+        "photos": [],
+        "location": "Verified Member",
+        "occupation": "Member",
+        "age": 28,
+        "online": true
+      }
+    },
+    "lastMessage": "Conversation initiated",
+    "lastMessageTime": "05:21 PM",
+    "updatedAt": "2026-09-10T16:21:51.791Z",
+    "messages": []
+  },
+  {
+    "id": "th_792bb07a-87eb-4c9c-88f1-0d5a2b828df3__usr-admin-master-01",
+    "user1Id": "792bb07a-87eb-4c9c-88f1-0d5a2b828df3",
+    "user2Id": "usr-admin-master-01",
+    "participants": {
+      "usr-admin-master-01": {
+        "id": "usr-admin-master-01",
+        "name": "Club Member",
+        "photos": [],
+        "location": "Verified Member",
+        "occupation": "Member",
+        "age": 28,
+        "online": true
+      },
+      "792bb07a-87eb-4c9c-88f1-0d5a2b828df3": {
+        "id": "792bb07a-87eb-4c9c-88f1-0d5a2b828df3",
+        "name": "Lord henry",
+        "photos": [],
+        "location": "Verified Member",
+        "occupation": "Member",
+        "age": 28,
+        "online": true
+      }
+    },
+    "lastMessage": "I would be delighted to join you for dinner!",
+    "lastMessageTime": "03:55 PM",
+    "updatedAt": "2026-09-10T14:55:21.848Z",
+    "messages": [
+      {
+        "id": "m-usr-1789052121848-jsom",
+        "senderId": "792bb07a-87eb-4c9c-88f1-0d5a2b828df3",
+        "content": "I would be delighted to join you for dinner!",
+        "timestamp": "03:55 PM",
+        "read": true,
+        "isVoiceNote": false,
+        "reactions": []
+      }
+    ]
+  },
+  {
+    "id": "th_51efaf9d-f98d-4495-b428-2c56a552ed9f__792bb07a-87eb-4c9c-88f1-0d5a2b828df3",
+    "user1Id": "792bb07a-87eb-4c9c-88f1-0d5a2b828df3",
+    "user2Id": "51efaf9d-f98d-4495-b428-2c56a552ed9f",
+    "participants": {
+      "51efaf9d-f98d-4495-b428-2c56a552ed9f": {
+        "id": "51efaf9d-f98d-4495-b428-2c56a552ed9f",
+        "name": "Just Test",
+        "photos": [],
+        "location": "London",
+        "occupation": "Verified Member",
+        "age": 28,
+        "tier": "ELITE",
+        "online": true
+      },
+      "792bb07a-87eb-4c9c-88f1-0d5a2b828df3": {
+        "id": "792bb07a-87eb-4c9c-88f1-0d5a2b828df3",
+        "name": "Lord henry",
+        "photos": [],
+        "location": "Verified Member",
+        "occupation": "Member",
+        "age": 28,
+        "online": true
+      }
+    },
+    "lastMessage": "Verified system check: messaging to other members is fully operational!",
+    "lastMessageTime": "03:45 PM",
+    "updatedAt": "2026-09-10T14:45:21.370Z",
+    "messages": [
+      {
+        "id": "m-usr-1789050442926-9dor",
+        "senderId": "792bb07a-87eb-4c9c-88f1-0d5a2b828df3",
+        "content": "Hello Just Test",
+        "timestamp": "03:27 PM",
+        "read": true,
+        "isVoiceNote": false,
+        "reactions": []
+      },
+      {
+        "id": "m-usr-1789051521371-6li1",
+        "senderId": "792bb07a-87eb-4c9c-88f1-0d5a2b828df3",
+        "content": "Verified system check: messaging to other members is fully operational!",
+        "timestamp": "03:45 PM",
+        "read": true,
+        "isVoiceNote": false,
+        "reactions": []
+      }
+    ]
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "memberWallet": {
+    "credits": 0,
+    "tier": "STANDARD",
+    "currency": "NGN",
+    "isVerified": true,
+    "billingHistory": []
+  },
+  "creatorEarnings": {
+    "withdrawableDiamonds": 0,
+    "pendingDiamonds": 0,
+    "lifetimeEarnedDiamonds": 0,
+    "isVerifiedCreator": false,
+    "payoutHistory": []
+  }
+}

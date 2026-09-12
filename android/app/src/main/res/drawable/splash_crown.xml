@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="120dp"
+    android:height="120dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+    
+    <!-- Outer Circular Ring -->
+    <path
+        android:strokeColor="#C69E46"
+        android:strokeWidth="3.2"
+        android:pathData="M 50,6 A 44,44 0 1,1 49.9,6 Z" />
+
+    <!-- Crown Body -->
+    <path
+        android:fillColor="#15C69E46"
+        android:strokeColor="#E5C378"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M32.2,58.8 L26.8,38.5 L40.5,49.8 L50,30.8 L59.5,49.8 L73.2,38.5 L67.8,58.8 Z" />
+
+    <!-- Crown Jewels -->
+    <path
+        android:fillColor="#E5C378"
+        android:pathData="M26.8,38.5 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 M50,30.8 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0 M73.2,38.5 m-2,0 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0" />
+
+    <!-- Underline Bar -->
+    <path
+        android:strokeColor="#E5C378"
+        android:strokeWidth="3.6"
+        android:strokeLineCap="round"
+        android:pathData="M32.5,65.2 L67.5,65.2" />
+</vector>

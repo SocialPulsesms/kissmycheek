@@ -1,0 +1,232 @@
+{
+  "timeframe": "30d",
+  "memberGrowth": [
+    {
+      "label": "Aug 10",
+      "date": "2026-08-10",
+      "value": 3420,
+      "secondaryValue": 280
+    },
+    {
+      "label": "Aug 15",
+      "date": "2026-08-15",
+      "value": 3680,
+      "secondaryValue": 340
+    },
+    {
+      "label": "Aug 20",
+      "date": "2026-08-20",
+      "value": 3950,
+      "secondaryValue": 410
+    },
+    {
+      "label": "Aug 25",
+      "date": "2026-08-25",
+      "value": 4230,
+      "secondaryValue": 490
+    },
+    {
+      "label": "Aug 30",
+      "date": "2026-08-30",
+      "value": 4510,
+      "secondaryValue": 580
+    },
+    {
+      "label": "Sep 04",
+      "date": "2026-09-04",
+      "value": 4720,
+      "secondaryValue": 640
+    },
+    {
+      "label": "Sep 08",
+      "date": "2026-09-08",
+      "value": 4850,
+      "secondaryValue": 710
+    }
+  ],
+  "revenueFlow": [
+    {
+      "label": "Aug 10",
+      "date": "2026-08-10",
+      "value": 295000
+    },
+    {
+      "label": "Aug 15",
+      "date": "2026-08-15",
+      "value": 320000
+    },
+    {
+      "label": "Aug 20",
+      "date": "2026-08-20",
+      "value": 348000
+    },
+    {
+      "label": "Aug 25",
+      "date": "2026-08-25",
+      "value": 375000
+    },
+    {
+      "label": "Aug 30",
+      "date": "2026-08-30",
+      "value": 392000
+    },
+    {
+      "label": "Sep 04",
+      "date": "2026-09-04",
+      "value": 408000
+    },
+    {
+      "label": "Sep 08",
+      "date": "2026-09-08",
+      "value": 418500
+    }
+  ],
+  "matchVelocity": [
+    {
+      "label": "Aug 10",
+      "date": "2026-08-10",
+      "value": 1240
+    },
+    {
+      "label": "Aug 15",
+      "date": "2026-08-15",
+      "value": 1480
+    },
+    {
+      "label": "Aug 20",
+      "date": "2026-08-20",
+      "value": 1650
+    },
+    {
+      "label": "Aug 25",
+      "date": "2026-08-25",
+      "value": 1920
+    },
+    {
+      "label": "Aug 30",
+      "date": "2026-08-30",
+      "value": 2150
+    },
+    {
+      "label": "Sep 04",
+      "date": "2026-09-04",
+      "value": 2380
+    },
+    {
+      "label": "Sep 08",
+      "date": "2026-09-08",
+      "value": 2640
+    }
+  ],
+  "boostSpikes": [
+    {
+      "label": "Aug 10",
+      "date": "2026-08-10",
+      "value": 85
+    },
+    {
+      "label": "Aug 15",
+      "date": "2026-08-15",
+      "value": 112
+    },
+    {
+      "label": "Aug 20",
+      "date": "2026-08-20",
+      "value": 145
+    },
+    {
+      "label": "Aug 25",
+      "date": "2026-08-25",
+      "value": 190
+    },
+    {
+      "label": "Aug 30",
+      "date": "2026-08-30",
+      "value": 230
+    },
+    {
+      "label": "Sep 04",
+      "date": "2026-09-04",
+      "value": 285
+    },
+    {
+      "label": "Sep 08",
+      "date": "2026-09-08",
+      "value": 340
+    }
+  ],
+  "historyLogs": [
+    {
+      "timestamp": "Just now",
+      "category": "CALL",
+      "title": "Private Video Date Completed (01:04)",
+      "description": "Encrypted 1080p Video date completed with Club Member.",
+      "actor": "Live WebRTC Media Stream",
+      "status": "COMPLETED",
+      "id": "log-1789061300587-2oafo"
+    },
+    {
+      "timestamp": "Just now",
+      "category": "CALL",
+      "title": "Private Video Date Completed (01:09)",
+      "description": "Encrypted 1080p Video date completed with Club Member.",
+      "actor": "Live WebRTC Media Stream",
+      "status": "COMPLETED",
+      "id": "log-1789059789535-dtmc3"
+    },
+    {
+      "timestamp": "Just now",
+      "category": "CALL",
+      "title": "Private Video Date Completed (01:15)",
+      "description": "Encrypted 1080p Video date completed with Just Test.",
+      "actor": "Live WebRTC Media Stream",
+      "status": "COMPLETED",
+      "id": "log-1789058519859-sk1oq"
+    },
+    {
+      "timestamp": "Just now",
+      "category": "CALL",
+      "title": "Private Video Date Completed (00:15)",
+      "description": "Encrypted 1080p Video date completed with Just Test.",
+      "actor": "Live WebRTC Media Stream",
+      "status": "COMPLETED",
+      "id": "log-1789057703574-orh5d"
+    },
+    {
+      "timestamp": "Just now",
+      "category": "CALL",
+      "title": "Private Video Date Completed (00:18)",
+      "description": "Encrypted 1080p Video date completed with Club Member.",
+      "actor": "Live WebRTC Media Stream",
+      "status": "COMPLETED",
+      "id": "log-1789057056273-bibnb"
+    },
+    {
+      "timestamp": "Just now",
+      "category": "CALL",
+      "title": "Private Voice Call Completed (00:43)",
+      "description": "Encrypted HD Voice date completed with Just Test.",
+      "actor": "Live WebRTC Media Stream",
+      "status": "COMPLETED",
+      "id": "log-1789056745040-2ktcn"
+    },
+    {
+      "timestamp": "Just now",
+      "category": "CALL",
+      "title": "Private Video Date Completed (00:11)",
+      "description": "Encrypted 1080p Video date completed with Just Test.",
+      "actor": "Live WebRTC Media Stream",
+      "status": "COMPLETED",
+      "id": "log-1789056151187-rev1f"
+    },
+    {
+      "timestamp": "Just now",
+      "category": "CALL",
+      "title": "Private Video Date Completed (01:15)",
+      "description": "Encrypted 1080p Video date completed with Just Test.",
+      "actor": "Live WebRTC Media Stream",
+      "status": "COMPLETED",
+      "id": "log-1789055461074-81yd0"
+    }
+  ]
+}

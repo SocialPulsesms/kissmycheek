@@ -1,0 +1,18 @@
+# ==============================================================================
+# Kiss My Cheek — Standard Apache Routing Configuration
+# Routes web traffic to PHP proxy bridge without requiring special Apache modules
+# ==============================================================================
+
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # If the requested resource is an existing physical file, serve it directly
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteRule ^ - [L]
+
+    # Route all other URLs (e.g. /discover, /messages, /admin, /api/*) to index.php
+    RewriteRule ^ index.php [QSA,L]
+</IfModule>

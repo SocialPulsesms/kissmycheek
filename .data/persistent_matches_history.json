@@ -1,0 +1,37 @@
+{
+  "likedYou": [],
+  "mutual": [],
+  "youLiked": [
+    {
+      "id": "51efaf9d-f98d-4495-b428-2c56a552ed9f",
+      "name": "Just Test",
+      "age": 28,
+      "location": "London",
+      "occupation": "Verified Member",
+      "education": "Alumni",
+      "bio": "Verified member via Google.",
+      "height": "5'10\"",
+      "verified": true,
+      "tier": "ELITE",
+      "compatibility": 95,
+      "relationshipGoals": "Exclusive Relationship",
+      "photos": [],
+      "interests": [],
+      "lifestyle": {
+        "travel": "",
+        "drink": "",
+        "workout": "",
+        "pets": ""
+      },
+      "online": true,
+      "distance": ""
+    }
+  ],
+  "expiring": [],
+  "passedUserIds": [
+    "usr_1788891628742_w6yvk",
+    "usr_1788891631172_aootg",
+    "usr_1788891635100_p4wpc",
+    "usr_1788891930120_gijir"
+  ]
+}

@@ -1,0 +1,42 @@
+[
+  {
+    "id": "792bb07a-87eb-4c9c-88f1-0d5a2b828df3",
+    "email": "eugenesyvester@gmail.com",
+    "passwordHash": "900f8e69d121309d184586e1781bface:566899aec50ffc82773ba1f47822e271c0e43bccd58fc7c8e75493268539e68fde7baf2e98432fe684dbd0164437186b6b63b9d55ae4bb22bd7b9951d7b4c178",
+    "role": "MEMBER",
+    "membershipTier": "ELITE",
+    "isVerified": true,
+    "credits": 9000,
+    "profile": {
+      "fullName": "Lord henry",
+      "dob": "1990-07-27",
+      "gender": "Man",
+      "location": "Enugu (Independence Layout), Enugu, Nigeria",
+      "occupation": "Executive Director & Real Estate Principal",
+      "education": "Oxford University",
+      "bio": "Gentleman of culture, private equity investor, and connoisseur of fine dining.",
+      "photos": []
+    },
+    "createdAt": "2026-09-08T19:06:55.342Z"
+  },
+  {
+    "id": "51efaf9d-f98d-4495-b428-2c56a552ed9f",
+    "email": "test@gmail.com",
+    "passwordHash": "1ff4c638152a823defb9b28d4d50f853:c51837895791d8a97abbe35933a1cb0d1321c7e2135cc39095a80dd9784a5f43d887c6e292bd8f3a2706bafbcd22ed0a4cf08b6235161acdf5ba85d353d848cb",
+    "role": "MEMBER",
+    "membershipTier": "ELITE",
+    "isVerified": true,
+    "credits": 500,
+    "profile": {
+      "fullName": "Just Test",
+      "dob": "1996-06-15",
+      "gender": "Woman",
+      "location": "London",
+      "occupation": "Verified Member",
+      "education": "Alumni",
+      "bio": "Verified member via Google.",
+      "photos": []
+    },
+    "createdAt": "2026-09-09T17:20:50.313Z"
+  }
+]
