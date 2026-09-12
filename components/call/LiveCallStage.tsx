@@ -227,63 +227,34 @@ export function LiveCallStage({
     // 1. Voice Mode
     if (callMode === 'voice') {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          video: false
-        });
-      } catch {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        } catch (e) {
-          console.warn('Voice acquisition fallback failed:', e);
-        }
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (e) {
+        console.warn('Voice acquisition fallback failed:', e);
       }
     } else {
-      // 2. Video Mode: Progressive Fallback (HD -> Standard -> Basic -> Audio-only)
-      const attempts = [
-        {
-          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-          video: { facingMode: { ideal: targetFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }
-        },
-        {
+      // 2. Video Mode: Instant Ultra-Fast Hardware Acquisition
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
           audio: true,
-          video: { facingMode: { ideal: targetFacing } }
-        },
-        {
-          audio: true,
-          video: true
-        }
-      ];
-
-      for (const constraints of attempts) {
+          video: { facingMode: targetFacing }
+        });
+      } catch (err1) {
+        console.warn('Primary camera attempt:', err1);
         try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          if (stream) break;
-        } catch (err: any) {
-          console.warn('Video constraints attempt failed:', err?.name || err);
-        }
-      }
-
-      // If combined video+audio failed, fallback to separate attempts
-      if (!stream) {
-        try {
-          const audioPart = await navigator.mediaDevices.getUserMedia({ audio: true });
-          stream = audioPart;
-        } catch (e) {
-          console.warn('Audio fallback error:', e);
-        }
-
-        try {
-          const videoPart = await navigator.mediaDevices.getUserMedia({ video: true });
-          if (videoPart) {
-            if (stream) {
-              videoPart.getVideoTracks().forEach(t => stream!.addTrack(t));
-            } else {
-              stream = videoPart;
-            }
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: true
+          });
+        } catch (err2) {
+          console.warn('Secondary camera attempt:', err2);
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({
+              audio: true,
+              video: false
+            });
+          } catch (err3) {
+            console.warn('Audio fallback attempt:', err3);
           }
-        } catch (e) {
-          console.warn('Video fallback error:', e);
         }
       }
     }
@@ -371,6 +342,10 @@ export function LiveCallStage({
   // Primary WebRTC Connection Pipeline
   useEffect(() => {
     endedRef.current = false;
+
+    // 0. Instantly acquire camera and microphone in 0ms upon call placement
+    acquireMediaStream(facingMode);
+
     const canonicalRoom = (initialRoomId || getCanonicalRoomId(currentUserId || 'caller', partnerId))
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, '-')
@@ -449,6 +424,16 @@ export function LiveCallStage({
         }
       } catch {}
 
+      // If localStream was already acquired in parallel, attach tracks immediately
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          try {
+            pc.addTrack(track, localStreamRef.current!);
+          } catch {}
+        });
+        applyKmcSenderParameters(pc, 'high');
+      }
+
       // Handle local ICE candidates
       pc.onicecandidate = (e) => {
         if (e.candidate) {
@@ -501,22 +486,20 @@ export function LiveCallStage({
         }
       };
 
-      // 3. Acquire Local Camera & Mic
-      acquireMediaStream('user').then(stream => {
-        if (stream && peerConnectionRef.current) {
-          stream.getTracks().forEach(track => {
-            try {
-              const senders = peerConnectionRef.current?.getSenders() || [];
-              const sender = senders.find(s => s.track?.kind === track.kind) || senders.find(s => !s.track);
-              if (sender) {
-                sender.replaceTrack(track).catch(() => {});
-              } else {
-                peerConnectionRef.current?.addTrack(track, stream);
-              }
-            } catch {}
-          });
-        }
-      });
+      // 3. Attach local tracks to peer connection if stream is already active
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => {
+          try {
+            const senders = pc.getSenders();
+            const sender = senders.find(s => s.track?.kind === track.kind) || senders.find(s => !s.track);
+            if (sender) {
+              sender.replaceTrack(track).catch(() => {});
+            } else {
+              pc.addTrack(track, localStreamRef.current!);
+            }
+          } catch {}
+        });
+      }
 
       // 4. Join room on signaling server
       try {
