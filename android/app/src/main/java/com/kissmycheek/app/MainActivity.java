@@ -57,27 +57,13 @@ public class MainActivity extends BridgeActivity {
                         public void onPermissionRequest(final android.webkit.PermissionRequest request) {
                             runOnUiThread(() -> {
                                 try {
-                                    boolean hasCamera = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
-                                    boolean hasAudio = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-
-                                    if (hasCamera && hasAudio) {
-                                        request.grant(request.getResources());
-                                        return;
-                                    }
-
-                                    java.util.List<String> neededPerms = new java.util.ArrayList<>();
-                                    if (!hasCamera) neededPerms.add(Manifest.permission.CAMERA);
-                                    if (!hasAudio) neededPerms.add(Manifest.permission.RECORD_AUDIO);
-
-                                    pendingPermissionRequest = request;
-                                    ActivityCompat.requestPermissions(
-                                        MainActivity.this,
-                                        neededPerms.toArray(new String[0]),
-                                        PERM_REQUEST_CODE
-                                    );
+                                    checkAudioVideoPermissions();
+                                    request.grant(request.getResources());
                                 } catch (Exception e) {
                                     e.printStackTrace();
-                                    try { request.grant(request.getResources()); } catch (Exception ignored) {}
+                                    try {
+                                        request.grant(request.getResources());
+                                    } catch (Exception ignored) {}
                                 }
                             });
                         }
@@ -85,9 +71,6 @@ public class MainActivity extends BridgeActivity {
                         @Override
                         public void onPermissionRequestCanceled(android.webkit.PermissionRequest request) {
                             super.onPermissionRequestCanceled(request);
-                            if (pendingPermissionRequest == request) {
-                                pendingPermissionRequest = null;
-                            }
                         }
                     });
 

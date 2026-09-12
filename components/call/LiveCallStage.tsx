@@ -93,6 +93,14 @@ export function LiveCallStage({
   const [mediaPermissionError, setMediaPermissionError] = useState<string | null>(null);
   const [isMediaStarting, setIsMediaStarting] = useState(false);
 
+  // Guarantee local self-view binding whenever local stream or camera state updates
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+      localVideoRef.current.play().catch(() => {});
+    }
+  }, [localStream, cameraOff]);
+
   // Current session resolution
   const getInitialUserId = () => {
     if (typeof window === 'undefined') return 'caller';
@@ -252,12 +260,11 @@ export function LiveCallStage({
           stream = await navigator.mediaDevices.getUserMedia(constraints);
           if (stream) break;
         } catch (err: any) {
-          console.warn('Video constraints attempt:', err?.name || err);
-          if (err?.name === 'NotAllowedError') break;
+          console.warn('Video constraints attempt failed:', err?.name || err);
         }
       }
 
-      // If combined video+audio was denied or failed, fallback to separate attempts
+      // If combined video+audio failed, fallback to separate attempts
       if (!stream) {
         try {
           const audioPart = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -952,7 +959,7 @@ export function LiveCallStage({
       </div>
 
       {/* 2. FULLSCREEN LUXURY VIDEO & VOICE STAGE */}
-      <div className="absolute inset-0 z-10 w-full h-full bg-black flex items-center justify-center overflow-hidden">
+      <div className="absolute inset-0 z-10 w-full h-full bg-black overflow-hidden">
         {/* Remote Partner Video Stream */}
         <video
           ref={remoteVideoRef}
@@ -960,14 +967,14 @@ export function LiveCallStage({
           playsInline
           muted={speakerMuted}
           style={{ filter: KMC_LUXE_FILTERS[activeFilter].filter }}
-          className={`w-full h-full object-cover transition-opacity duration-700 ${
-            callConnected && hasRemoteVideo && !partnerCameraOff ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${
+            callConnected && hasRemoteVideo && !partnerCameraOff ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none z-0'
           }`}
         />
 
         {/* Fallback Luxury Calling / Ringing / Voice Mode Screen */}
         {(!callConnected || !hasRemoteVideo || partnerCameraOff) && (
-          <div className="relative w-full h-full flex flex-col items-center justify-center p-6 text-center z-10 bg-[#07070A] overflow-hidden">
+          <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center p-6 text-center z-10 bg-[#07070A] overflow-hidden">
             {/* Ambient Blurred Background Wallpaper */}
             {profile.photos?.[0] && (
               <div 
