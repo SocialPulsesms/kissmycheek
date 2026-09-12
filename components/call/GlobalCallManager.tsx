@@ -48,9 +48,36 @@ export function GlobalCallManager() {
 
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const incomingCallRef = useRef<IncomingCallData | null>(null);
+  incomingCallRef.current = incomingCall;
+
+  // Helper: check if a user is currently logged in
+  const isUserLoggedIn = () => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const isGuestRoute = /^\/(login|register|forgot-password|reset-password)/.test(pathname || '');
+      if (isGuestRoute) return false;
+
+      const hasCookie = document.cookie.includes('session-token=') && !document.cookie.includes('session-token=;');
+      const hasProfile = Boolean(localStorage.getItem('kmc_user_profile') || localStorage.getItem('kmc_session'));
+      return hasCookie || hasProfile;
+    } catch {
+      return false;
+    }
+  };
 
   // 1. Resolve current user IDs (profile, session, and auth can disagree)
   useEffect(() => {
+    if (!isUserLoggedIn()) {
+      if (stopRingtoneRef.current) {
+        stopRingtoneRef.current();
+        stopRingtoneRef.current = null;
+      }
+      setIncomingCall(null);
+      setActiveCallParams(null);
+      return;
+    }
+
     const ids = new Set<string>();
     let resolvedId: string | null = null;
     let resolvedEmail = '';
@@ -95,9 +122,14 @@ export function GlobalCallManager() {
         }
       })
       .catch(() => {});
+
+    // Request notification permission once on authenticated session mount
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
   }, [pathname]);
 
-  // 2. Listen for internal in-app call triggers
+  // 2. Listen for internal in-app call triggers and logout events
   useEffect(() => {
     const handleStartCallEvent = (e: Event) => {
       const customEvent = e as CustomEvent<StartCallEventDetail>;
@@ -124,15 +156,40 @@ export function GlobalCallManager() {
       });
     };
 
+    const handleLogoutHalt = () => {
+      if (stopRingtoneRef.current) {
+        stopRingtoneRef.current();
+        stopRingtoneRef.current = null;
+      }
+      setIncomingCall(null);
+      setActiveCallParams(null);
+      setCurrentUserId(null);
+      setCurrentUserIds([]);
+    };
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'kmc_user_profile' || e.key === 'kmc_session') {
+        if (!e.newValue) {
+          handleLogoutHalt();
+        }
+      }
+    };
+
     window.addEventListener('kmc_start_call', handleStartCallEvent);
+    window.addEventListener('kmc_logout', handleLogoutHalt);
+    window.addEventListener('storage', handleStorageChange);
+
     return () => {
       window.removeEventListener('kmc_start_call', handleStartCallEvent);
+      window.removeEventListener('kmc_logout', handleLogoutHalt);
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
-  // 3. Poll for incoming calls when not inside an active call
+  // 3. Poll for incoming calls when logged in and not inside an active call
   useEffect(() => {
-    if (activeCallParams || pathname?.startsWith('/call/')) {
+    // If not logged in or currently inside active call, halt ringing and polling immediately
+    if (!isUserLoggedIn() || activeCallParams || pathname?.startsWith('/call/')) {
       if (stopRingtoneRef.current) {
         stopRingtoneRef.current();
         stopRingtoneRef.current = null;
@@ -141,7 +198,22 @@ export function GlobalCallManager() {
       return;
     }
 
+    let isChecking = false;
+
     const checkIncoming = async () => {
+      // Strict guard: App MUST NOT ring or check calls if user is logged out
+      if (!isUserLoggedIn()) {
+        if (stopRingtoneRef.current) {
+          stopRingtoneRef.current();
+          stopRingtoneRef.current = null;
+        }
+        setIncomingCall(null);
+        return;
+      }
+
+      if (isChecking) return;
+      isChecking = true;
+
       try {
         let userEmail = '';
         let userName = '';
@@ -170,7 +242,16 @@ export function GlobalCallManager() {
         ].filter(Boolean)));
         const queryUrl = `/api/call?action=check_incoming&userId=${encodeURIComponent(currentUserId || '')}&email=${encodeURIComponent(userEmail || currentUserEmail)}&ids=${encodeURIComponent(extraIds.join(','))}`;
         const res = await fetch(queryUrl);
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (res.status === 401) {
+            if (stopRingtoneRef.current) {
+              stopRingtoneRef.current();
+              stopRingtoneRef.current = null;
+            }
+            setIncomingCall(null);
+          }
+          return;
+        }
         const data = await res.json();
 
         if (data.success && data.incomingCall) {
@@ -180,16 +261,36 @@ export function GlobalCallManager() {
             setCurrentUserId(call.calleeId);
           }
 
-          if (!incomingCall || incomingCall.roomId !== call.roomId) {
+          const currentCall = incomingCallRef.current;
+          if (!currentCall || currentCall.roomId !== call.roomId) {
             setIncomingCall(call);
             setRingingSeconds(0);
 
+            // Ring out with background HTML5 audio and vibration
             if (!stopRingtoneRef.current) {
               stopRingtoneRef.current = callRingtone.startIncomingRingtone();
             }
+
+            // If app is minimized or hidden, present a system notification
+            if (typeof document !== 'undefined' && document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              try {
+                const notif = new Notification(`${call.callerName || 'Member'} is calling...`, {
+                  body: call.callMode === 'video' ? 'Incoming HD Video Date' : 'Incoming Private Voice Call',
+                  icon: call.callerPhoto || '/icons/icon-192x192.png',
+                  tag: `call-${call.roomId}`,
+                  requireInteraction: true
+                });
+                notif.onclick = () => {
+                  try { window.focus(); } catch {}
+                  notif.close();
+                };
+              } catch {}
+            }
           }
         } else {
-          if (incomingCall) {
+          // No incoming call or caller cancelled
+          const currentCall = incomingCallRef.current;
+          if (currentCall) {
             if (stopRingtoneRef.current) {
               stopRingtoneRef.current();
               stopRingtoneRef.current = null;
@@ -198,16 +299,84 @@ export function GlobalCallManager() {
             setIncomingCall(null);
           }
         }
-      } catch {}
+      } catch {} finally {
+        isChecking = false;
+      }
     };
 
+    // Immediate check
     checkIncoming();
-    const interval = setInterval(checkIncoming, 2000);
+
+    // 1. Main thread fallback interval
+    const mainInterval = setInterval(checkIncoming, 2000);
+
+    // 2. Web Worker background timer: ensures polling continues every 2s even when app is minimized / document is hidden
+    let worker: Worker | null = null;
+    let workerBlobUrl: string | null = null;
+    try {
+      const workerCode = `
+        var t = null;
+        self.onmessage = function(e) {
+          if (e.data === 'start') {
+            if (!t) {
+              t = setInterval(function() {
+                self.postMessage('tick');
+              }, 2000);
+            }
+          } else if (e.data === 'stop') {
+            if (t) {
+              clearInterval(t);
+              t = null;
+            }
+          }
+        };
+      `;
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      workerBlobUrl = URL.createObjectURL(blob);
+      worker = new Worker(workerBlobUrl);
+      worker.onmessage = (e) => {
+        if (e.data === 'tick') {
+          checkIncoming();
+        }
+      };
+      worker.postMessage('start');
+    } catch {}
+
+    // 3. Keep-alive listener on visibility change
+    const handleVisibilityChange = () => {
+      if (isUserLoggedIn()) {
+        checkIncoming();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // 4. Capacitor App State Change listener (minimized <-> foreground)
+    let removeCapListener: (() => void) | null = null;
+    import('@capacitor/app').then(({ App }) => {
+      App.addListener('appStateChange', ({ isActive }) => {
+        if (isUserLoggedIn()) {
+          checkIncoming();
+        }
+      }).then(handle => {
+        removeCapListener = () => handle.remove();
+      }).catch(() => {});
+    }).catch(() => {});
 
     return () => {
-      clearInterval(interval);
+      clearInterval(mainInterval);
+      if (worker) {
+        try {
+          worker.postMessage('stop');
+          worker.terminate();
+        } catch {}
+      }
+      if (workerBlobUrl) {
+        try { URL.revokeObjectURL(workerBlobUrl); } catch {}
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (removeCapListener) removeCapListener();
     };
-  }, [currentUserId, currentUserIds, currentUserEmail, pathname, incomingCall, activeCallParams]);
+  }, [currentUserId, currentUserIds, currentUserEmail, pathname, activeCallParams]);
 
   // Ringing timer
   useEffect(() => {

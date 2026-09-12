@@ -947,9 +947,7 @@ function MessagesContent() {
         if (rawMembers.length > 0) {
           const others = rawMembers.filter((m: any) => 
             m.id !== currentUserId && 
-            m.id !== '792bb07a-87eb-4c9c-88f1-0d5a2b828df3' && 
-            m.id !== 'usr_1788894415342_nvwhu' &&
-            m.name !== currentUserName
+            (!currentUserEmail || m.email !== currentUserEmail)
           );
           setDirectoryMembers(others);
         }
@@ -964,7 +962,7 @@ function MessagesContent() {
   // Handle member selection from modal to start/open chat
   const handleSelectNewChatMember = async (member: any) => {
     setIsNewChatOpen(false);
-    if (!member || !member.id || member.id === currentUserId || member.id === '792bb07a-87eb-4c9c-88f1-0d5a2b828df3') return;
+    if (!member || !member.id || member.id === currentUserId) return;
 
     const canonicalId = `th_${[currentUserId || 'user-me', member.id].sort().join('__')}`;
     
@@ -1466,13 +1464,21 @@ function MessagesContent() {
   };
 
   const filteredConversations = conversations.filter(c => {
-    if (!c.participant) return false;
-    if (c.participant.id === currentUserId || c.participant.id === '792bb07a-87eb-4c9c-88f1-0d5a2b828df3') return false;
-    if (currentUserName && c.participant.name === currentUserName) return false;
-    return (
-      c.participant.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
+    if (!c || !c.participant) return false;
+    const isSelf = Boolean(
+      (currentUserId && c.participant.id === currentUserId) ||
+      (currentUserEmail && c.participant.id === currentUserEmail)
     );
+    if (isSelf) return false;
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      return (
+        (c.participant.name || '').toLowerCase().includes(query) ||
+        (c.lastMessage || '').toLowerCase().includes(query)
+      );
+    }
+    return true;
   });
 
   return (
@@ -1499,7 +1505,7 @@ function MessagesContent() {
                       sidebarTab === 'messages' ? 'bg-[#D4AF37] text-black font-bold shadow-md' : 'text-white/60 hover:text-white'
                     }`}
                   >
-                    Chats ({conversations.length})
+                    Chats ({filteredConversations.length})
                   </button>
                   <button
                     onClick={() => setSidebarTab('calls')}

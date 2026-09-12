@@ -27,9 +27,35 @@ export function IncomingCallManager() {
 
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const incomingCallRef = useRef<IncomingCallData | null>(null);
+  incomingCallRef.current = incomingCall;
+
+  // Helper: check if a user is currently logged in
+  const isUserLoggedIn = () => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const isGuestRoute = /^\/(login|register|forgot-password|reset-password)/.test(pathname || '');
+      if (isGuestRoute) return false;
+
+      const hasCookie = document.cookie.includes('session-token=') && !document.cookie.includes('session-token=;');
+      const hasProfile = Boolean(localStorage.getItem('kmc_user_profile') || localStorage.getItem('kmc_session'));
+      return hasCookie || hasProfile;
+    } catch {
+      return false;
+    }
+  };
 
   // 1. Fetch current logged-in user ID
   useEffect(() => {
+    if (!isUserLoggedIn()) {
+      if (stopRingtoneRef.current) {
+        stopRingtoneRef.current();
+        stopRingtoneRef.current = null;
+      }
+      setIncomingCall(null);
+      return;
+    }
+
     let resolvedId: string | null = null;
     try {
       const savedProfile = localStorage.getItem('kmc_user_profile');
@@ -59,10 +85,10 @@ export function IncomingCallManager() {
       .catch(() => {});
   }, [pathname]);
 
-  // 2. Poll for incoming calls every 2.5s (only when not in an active call page)
+  // 2. Poll for incoming calls (only when logged in and not in an active call page)
   useEffect(() => {
-    // If user is currently on the call page, do not show incoming call modal
-    if (pathname?.startsWith('/call/')) {
+    // If not logged in or on the call page, halt ringing and exit
+    if (!isUserLoggedIn() || pathname?.startsWith('/call/')) {
       if (stopRingtoneRef.current) {
         stopRingtoneRef.current();
         stopRingtoneRef.current = null;
@@ -71,7 +97,21 @@ export function IncomingCallManager() {
       return;
     }
 
+    let isChecking = false;
+
     const checkIncoming = async () => {
+      if (!isUserLoggedIn()) {
+        if (stopRingtoneRef.current) {
+          stopRingtoneRef.current();
+          stopRingtoneRef.current = null;
+        }
+        setIncomingCall(null);
+        return;
+      }
+
+      if (isChecking) return;
+      isChecking = true;
+
       try {
         let userEmail = '';
         let userName = '';
@@ -106,8 +146,8 @@ export function IncomingCallManager() {
             setCurrentUserId(call.calleeId);
           }
 
-          // New incoming call detected
-          if (!incomingCall || incomingCall.roomId !== call.roomId) {
+          const currentCall = incomingCallRef.current;
+          if (!currentCall || currentCall.roomId !== call.roomId) {
             setIncomingCall(call);
             setRingingSeconds(0);
 
@@ -115,10 +155,27 @@ export function IncomingCallManager() {
             if (!stopRingtoneRef.current) {
               stopRingtoneRef.current = callRingtone.startIncomingRingtone();
             }
+
+            // System Notification if minimized
+            if (typeof document !== 'undefined' && document.hidden && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+              try {
+                const notif = new Notification(`${call.callerName || 'Member'} is calling...`, {
+                  body: call.callMode === 'video' ? 'Incoming HD Video Date' : 'Incoming Private Voice Call',
+                  icon: call.callerPhoto || '/icons/icon-192x192.png',
+                  tag: `call-${call.roomId}`,
+                  requireInteraction: true
+                });
+                notif.onclick = () => {
+                  try { window.focus(); } catch {}
+                  notif.close();
+                };
+              } catch {}
+            }
           }
         } else {
           // No incoming call or caller cancelled
-          if (incomingCall) {
+          const currentCall = incomingCallRef.current;
+          if (currentCall) {
             if (stopRingtoneRef.current) {
               stopRingtoneRef.current();
               stopRingtoneRef.current = null;
@@ -127,17 +184,77 @@ export function IncomingCallManager() {
             setIncomingCall(null);
           }
         }
-      } catch {}
+      } catch {} finally {
+        isChecking = false;
+      }
     };
 
-    // Immediate check + interval
+    // Immediate check + main interval
     checkIncoming();
     const interval = setInterval(checkIncoming, 2000);
 
+    // Web Worker background timer
+    let worker: Worker | null = null;
+    let workerBlobUrl: string | null = null;
+    try {
+      const workerCode = `
+        var t = null;
+        self.onmessage = function(e) {
+          if (e.data === 'start') {
+            if (!t) {
+              t = setInterval(function() {
+                self.postMessage('tick');
+              }, 2000);
+            }
+          } else if (e.data === 'stop') {
+            if (t) {
+              clearInterval(t);
+              t = null;
+            }
+          }
+        };
+      `;
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      workerBlobUrl = URL.createObjectURL(blob);
+      worker = new Worker(workerBlobUrl);
+      worker.onmessage = (e) => {
+        if (e.data === 'tick') {
+          checkIncoming();
+        }
+      };
+      worker.postMessage('start');
+    } catch {}
+
+    const handleVisibility = () => {
+      if (isUserLoggedIn()) checkIncoming();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    const handleLogout = () => {
+      if (stopRingtoneRef.current) {
+        stopRingtoneRef.current();
+        stopRingtoneRef.current = null;
+      }
+      setIncomingCall(null);
+      setCurrentUserId(null);
+    };
+    window.addEventListener('kmc_logout', handleLogout);
+
     return () => {
       clearInterval(interval);
+      if (worker) {
+        try {
+          worker.postMessage('stop');
+          worker.terminate();
+        } catch {}
+      }
+      if (workerBlobUrl) {
+        try { URL.revokeObjectURL(workerBlobUrl); } catch {}
+      }
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('kmc_logout', handleLogout);
     };
-  }, [currentUserId, pathname, incomingCall]);
+  }, [currentUserId, pathname]);
 
   // 3. Ringing timer
   useEffect(() => {

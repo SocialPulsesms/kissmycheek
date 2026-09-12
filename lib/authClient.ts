@@ -40,6 +40,13 @@ export async function performLogout() {
     if (bioCred) localStorage.setItem('kmc_biometric_credential', bioCred);
   } catch (e) {}
 
+  // Notify in-app managers immediately to stop any ringing or active call
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('kmc_logout'));
+    } catch {}
+  }
+
   // Hard reload directly to /login
   window.location.replace('/login');
 }
