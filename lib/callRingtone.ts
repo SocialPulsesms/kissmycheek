@@ -3,6 +3,18 @@
 
 class CallRingtoneManager {
   private audioCtx: AudioContext | null = null;
+  private activeCleanups: Set<() => void> = new Set();
+
+  public stopAll(): void {
+    const cleanups = Array.from(this.activeCleanups);
+    this.activeCleanups.clear();
+    cleanups.forEach(fn => {
+      try { fn(); } catch {}
+    });
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try { navigator.vibrate(0); } catch {}
+    }
+  }
 
   private getAudioContext(): AudioContext | null {
     if (typeof window === 'undefined') return null;
@@ -84,7 +96,8 @@ class CallRingtoneManager {
 
     playToneBurst();
 
-    return () => {
+    const cleanup = () => {
+      this.activeCleanups.delete(cleanup);
       isPlaying = false;
       if (timer) clearTimeout(timer);
       try {
@@ -100,6 +113,9 @@ class CallRingtoneManager {
         }
       } catch {}
     };
+
+    this.activeCleanups.add(cleanup);
+    return cleanup;
   }
 
   /**
@@ -253,7 +269,8 @@ class CallRingtoneManager {
       intervalTimer = setInterval(triggerVibration, 2400);
     }
 
-    return () => {
+    const cleanup = () => {
+      this.activeCleanups.delete(cleanup);
       isPlaying = false;
       if (intervalTimer) {
         clearTimeout(intervalTimer);
@@ -276,6 +293,9 @@ class CallRingtoneManager {
         } catch {}
       }
     };
+
+    this.activeCleanups.add(cleanup);
+    return cleanup;
   }
 
   /**

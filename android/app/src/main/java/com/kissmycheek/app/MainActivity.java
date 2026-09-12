@@ -13,6 +13,7 @@ public class MainActivity extends BridgeActivity {
     private static final int PERM_REQUEST_CODE = 200;
     private long lastBackPressTime = 0;
     private boolean isAppReady = false;
+    private android.webkit.PermissionRequest pendingPermissionRequest = null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -53,20 +54,24 @@ public class MainActivity extends BridgeActivity {
                                     boolean hasCamera = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
                                     boolean hasAudio = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
 
-                                    if (!hasCamera || !hasAudio) {
-                                        ActivityCompat.requestPermissions(
-                                            MainActivity.this,
-                                            new String[]{
-                                                Manifest.permission.CAMERA,
-                                                Manifest.permission.RECORD_AUDIO
-                                            },
-                                            PERM_REQUEST_CODE
-                                        );
+                                    if (hasCamera && hasAudio) {
+                                        request.grant(request.getResources());
+                                        return;
                                     }
 
-                                    request.grant(request.getResources());
+                                    java.util.List<String> neededPerms = new java.util.ArrayList<>();
+                                    if (!hasCamera) neededPerms.add(Manifest.permission.CAMERA);
+                                    if (!hasAudio) neededPerms.add(Manifest.permission.RECORD_AUDIO);
+
+                                    pendingPermissionRequest = request;
+                                    ActivityCompat.requestPermissions(
+                                        MainActivity.this,
+                                        neededPerms.toArray(new String[0]),
+                                        PERM_REQUEST_CODE
+                                    );
                                 } catch (Exception e) {
                                     e.printStackTrace();
+                                    try { request.grant(request.getResources()); } catch (Exception ignored) {}
                                 }
                             });
                         }
@@ -74,6 +79,9 @@ public class MainActivity extends BridgeActivity {
                         @Override
                         public void onPermissionRequestCanceled(android.webkit.PermissionRequest request) {
                             super.onPermissionRequestCanceled(request);
+                            if (pendingPermissionRequest == request) {
+                                pendingPermissionRequest = null;
+                            }
                         }
                     });
 
@@ -168,6 +176,39 @@ public class MainActivity extends BridgeActivity {
                 },
                 PERM_REQUEST_CODE
             );
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERM_REQUEST_CODE && pendingPermissionRequest != null) {
+            final android.webkit.PermissionRequest req = pendingPermissionRequest;
+            pendingPermissionRequest = null;
+            runOnUiThread(() -> {
+                try {
+                    boolean hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+                    boolean hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+
+                    java.util.List<String> grantedResources = new java.util.ArrayList<>();
+                    for (String resource : req.getResources()) {
+                        if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource) && hasCamera) {
+                            grantedResources.add(resource);
+                        } else if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource) && hasAudio) {
+                            grantedResources.add(resource);
+                        }
+                    }
+
+                    if (!grantedResources.isEmpty()) {
+                        req.grant(grantedResources.toArray(new String[0]));
+                    } else {
+                        req.deny();
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    try { req.deny(); } catch (Exception ignored) {}
+                }
+            });
         }
     }
 

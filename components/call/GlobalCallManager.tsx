@@ -397,6 +397,7 @@ export function GlobalCallManager() {
   const handleAcceptCall = () => {
     if (!incomingCall) return;
 
+    callRingtone.stopAll();
     if (stopRingtoneRef.current) {
       stopRingtoneRef.current();
       stopRingtoneRef.current = null;
@@ -425,6 +426,7 @@ export function GlobalCallManager() {
       initialRoomId: currentInc.roomId,
       role: 'callee',
       onEndCall: () => {
+        callRingtone.stopAll();
         setActiveCallParams(null);
       }
     });
@@ -434,6 +436,7 @@ export function GlobalCallManager() {
   const handleDeclineCall = async () => {
     if (!incomingCall) return;
 
+    callRingtone.stopAll();
     if (stopRingtoneRef.current) {
       stopRingtoneRef.current();
       stopRingtoneRef.current = null;

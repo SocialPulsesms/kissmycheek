@@ -123,7 +123,7 @@ export function LiveCallStage({
   const [isSwappedView, setIsSwappedView] = useState(false);
   const [audioBlockedNotice, setAudioBlockedNotice] = useState(false);
   const [floatingReactions, setFloatingReactions] = useState<Array<{ id: string; emoji: string; x: number }>>([]);
-  const [connectionStatus, setConnectionStatus] = useState<string>('Calling member...');
+  const [connectionStatus, setConnectionStatus] = useState<string>(initialRole === 'callee' ? 'Connecting...' : 'Calling member...');
   const [copiedLink, setCopiedLink] = useState(false);
   const stopRingbackRef = useRef<(() => void) | null>(null);
 
@@ -256,48 +256,83 @@ export function LiveCallStage({
       return null;
     }
 
-    const cascades: MediaStreamConstraints[] = [
-      {
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: { facingMode: targetFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
-      },
-      {
-        audio: true,
-        video: { facingMode: targetFacingMode }
-      },
-      {
-        audio: true,
-        video: true
-      },
-      {
-        video: { facingMode: targetFacingMode }
-      },
-      {
-        video: true
-      }
-    ];
-
-    for (const constraint of cascades) {
+    // A. Voice-only mode
+    if (callMode === 'voice') {
       try {
-        stream = await navigator.mediaDevices.getUserMedia(constraint);
-        if (stream) break;
-      } catch (err) {
-        // try next fallback in cascade
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+        });
+      } catch {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        } catch (err) {
+          console.warn('Voice-only media acquisition error:', err);
+        }
       }
-    }
+    } else {
+      // B. Video mode: Try progressive constraints with standard soft ideal matching (avoid strict device locks)
+      const cascades: MediaStreamConstraints[] = [
+        {
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: {
+            facingMode: { ideal: targetFacingMode },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        },
+        {
+          audio: true,
+          video: { facingMode: { ideal: targetFacingMode } }
+        },
+        {
+          audio: true,
+          video: true
+        }
+      ];
 
-    // Audio-only fallback if video was denied or busy
-    if (!stream) {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (err) {
-        console.warn('Audio fallback also failed:', err);
+      for (const constraint of cascades) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraint);
+          if (stream) break;
+        } catch (err: any) {
+          console.warn('getUserMedia cascade fallback:', err?.name || err);
+          // If NotAllowedError (user tapped Deny or dialog dismissed), break early to allow separate audio fallback
+          if (err?.name === 'NotAllowedError') {
+            break;
+          }
+        }
+      }
+
+      // C. Separate fallback: If combined failed, guarantee audio first, then try video independently
+      if (!stream) {
+        try {
+          const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream = audioStream;
+        } catch (audioErr) {
+          console.warn('Fallback audio acquisition failed:', audioErr);
+        }
+
+        try {
+          const videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: targetFacingMode } }
+          }).catch(() => navigator.mediaDevices.getUserMedia({ video: true }));
+
+          if (videoStream) {
+            if (stream) {
+              videoStream.getVideoTracks().forEach(t => stream!.addTrack(t));
+            } else {
+              stream = videoStream;
+            }
+          }
+        } catch (videoErr) {
+          console.warn('Fallback video acquisition failed:', videoErr);
+        }
       }
     }
 
     if (stream) {
       const hasVideo = stream.getVideoTracks().length > 0;
-      if (!hasVideo) {
+      if (!hasVideo && callMode === 'video') {
         setCameraError('Camera disabled • Tap to allow');
       } else {
         setCameraError(null);
@@ -373,12 +408,24 @@ export function LiveCallStage({
 
       remoteStreamRef.current = new MediaStream();
 
-      // Acquire camera & audio with progressive resilience
-      const localStream = await requestLocalMedia(targetFacingMode);
+      // Immediately silence any incoming ringtones if callee
+      const intendedRole = initialRole === 'callee' ? 'callee' : (initialRole || 'caller');
+      if (intendedRole === 'callee') {
+        callRingtone.stopAll();
+        if (stopRingbackRef.current) {
+          stopRingbackRef.current();
+          stopRingbackRef.current = null;
+        }
+        setConnectionStatus('Connecting...');
+      }
 
+      // Fast ICE servers retrieval with safety timeout
       let rtcConfig: RTCConfiguration = DEFAULT_RTC_CONFIGURATION;
       try {
-        const iceRes = await fetch('/api/ice-servers');
+        const iceController = new AbortController();
+        const iceTimeout = setTimeout(() => iceController.abort(), 1500);
+        const iceRes = await fetch('/api/ice-servers', { signal: iceController.signal });
+        clearTimeout(iceTimeout);
         const iceData = await iceRes.json();
         if (Array.isArray(iceData?.iceServers) && iceData.iceServers.length > 0) {
           rtcConfig = { ...DEFAULT_RTC_CONFIGURATION, iceServers: iceData.iceServers };
@@ -388,17 +435,35 @@ export function LiveCallStage({
       const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;
 
-      if (localStream) {
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream!));
-        applyKmcSenderParameters(pc, 'ultra');
-      }
-
+      // Pre-allocate audio and video transceivers with direction 'sendrecv'
+      // Guarantees immediate SDP offer/answer generation with audio & video m-lines
+      // WebRTC signaling connects in <200ms without being blocked by camera hardware!
       try {
         if (pc.getTransceivers().length === 0) {
           pc.addTransceiver('audio', { direction: 'sendrecv' });
           pc.addTransceiver('video', { direction: 'sendrecv' });
         }
       } catch (e) {}
+
+      // Kick off camera & mic acquisition ASYNCHRONOUSLY in the background
+      requestLocalMedia(targetFacingMode).then(stream => {
+        if (stream && peerConnectionRef.current) {
+          const currentSenders = peerConnectionRef.current.getSenders();
+          stream.getTracks().forEach(track => {
+            const matchingSender = currentSenders.find(s => s.track?.kind === track.kind) || currentSenders.find(s => !s.track);
+            if (matchingSender) {
+              matchingSender.replaceTrack(track).catch(() => {});
+            } else {
+              try {
+                peerConnectionRef.current!.addTrack(track, stream);
+              } catch (e) {}
+            }
+          });
+          applyKmcSenderParameters(peerConnectionRef.current, 'ultra');
+        }
+      }).catch(err => {
+        console.warn('Background media acquisition error:', err);
+      });
 
       pc.ontrack = (event) => {
         if (!remoteStreamRef.current) {
@@ -460,13 +525,13 @@ export function LiveCallStage({
           setAudioBlockedNotice(true);
         });
 
-        setCallConnected(true);
-        setPartnerJoined(true);
-        
+        callRingtone.stopAll();
         if (stopRingbackRef.current) {
           stopRingbackRef.current();
           stopRingbackRef.current = null;
         }
+        setCallConnected(true);
+        setPartnerJoined(true);
         setConnectionStatus('Connected');
       };
 
@@ -500,13 +565,14 @@ export function LiveCallStage({
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
         if (state === 'connected') {
-          setCallConnected(true);
-          setPartnerJoined(true);
-          applyKmcSenderParameters(pc, 'high');
+          callRingtone.stopAll();
           if (stopRingbackRef.current) {
             stopRingbackRef.current();
             stopRingbackRef.current = null;
           }
+          setCallConnected(true);
+          setPartnerJoined(true);
+          applyKmcSenderParameters(pc, 'high');
           setConnectionStatus('Connected');
         } else if (state === 'failed') {
           setConnectionStatus('Reconnecting...');
@@ -516,13 +582,14 @@ export function LiveCallStage({
       pc.oniceconnectionstatechange = () => {
         const state = pc.iceConnectionState;
         if (state === 'connected' || state === 'completed') {
-          setCallConnected(true);
-          setPartnerJoined(true);
-          applyKmcSenderParameters(pc, 'high');
+          callRingtone.stopAll();
           if (stopRingbackRef.current) {
             stopRingbackRef.current();
             stopRingbackRef.current = null;
           }
+          setCallConnected(true);
+          setPartnerJoined(true);
+          applyKmcSenderParameters(pc, 'high');
           setConnectionStatus('Connected');
         } else if (state === 'failed' && peerRoleRef.current === 'caller') {
           pc.createOffer({ iceRestart: true }).then(async (newOffer) => {
@@ -544,10 +611,7 @@ export function LiveCallStage({
         }
       };
 
-      const intendedRole = initialRole || 'caller';
-
-      // Caller: create the invite BEFORE joining. If messages already rang the
-      // callee, the store keeps the in-flight room instead of wiping SDP/ICE.
+      // Caller: initiate room invite before joining
       if (intendedRole === 'caller') {
         try {
           await fetch('/api/call', {
@@ -585,9 +649,65 @@ export function LiveCallStage({
       });
       const joinData = await joinRes.json();
       
-      const effectiveRole = initialRole || joinData.role || (joinData.room?.peers?.length === 1 ? 'caller' : 'callee');
+      const effectiveRole = intendedRole === 'callee'
+        ? 'callee'
+        : (intendedRole === 'caller'
+          ? 'caller'
+          : (joinData.role || (joinData.room?.peers?.length === 1 ? 'caller' : 'callee')));
+
       setPeerRole(effectiveRole);
       peerRoleRef.current = effectiveRole;
+
+      // Handle Callee Answering Offer
+      const handleRemoteOffer = async (remoteOffer: RTCSessionDescriptionInit) => {
+        if (pc.currentRemoteDescription || remoteDescriptionSetRef.current) return;
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(remoteOffer));
+          remoteDescriptionSetRef.current = true;
+
+          const answer = await pc.createAnswer();
+          let localAnswerSdp = answer.sdp || '';
+          try {
+            const optimized = optimizeSdpForNetwork(answer.sdp || '');
+            await pc.setLocalDescription({ type: answer.type, sdp: optimized });
+            localAnswerSdp = optimized;
+          } catch (ansErr) {
+            console.warn('Optimized answer SDP fallback to raw SDP:', ansErr);
+            await pc.setLocalDescription({ type: answer.type, sdp: answer.sdp });
+            localAnswerSdp = answer.sdp || '';
+          }
+
+          await fetch('/api/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'answer',
+              roomId: canonicalRoom,
+              peerId: currentPeerId,
+              answer: { type: answer.type, sdp: localAnswerSdp },
+              sdp: { type: answer.type, sdp: localAnswerSdp }
+            })
+          });
+
+          applyKmcSenderParameters(pc, 'high');
+
+          while (pendingCandidatesRef.current.length > 0) {
+            const cand = pendingCandidatesRef.current.shift();
+            if (cand && (cand.candidate || cand.sdpMid !== undefined)) {
+              try {
+                await pc.addIceCandidate(new RTCIceCandidate(cand));
+              } catch (ce) {}
+            }
+          }
+
+          callRingtone.stopAll();
+          setConnectionStatus('Connected');
+          setPartnerJoined(true);
+          setCallConnected(true);
+        } catch (e) {
+          console.error('[WebRTC] Callee negotiation error:', e);
+        }
+      };
 
       if (effectiveRole === 'caller') {
         stopRingbackRef.current = callRingtone.startOutgoingRingback();
@@ -620,7 +740,17 @@ export function LiveCallStage({
           })
         });
       } else {
+        callRingtone.stopAll();
+        if (stopRingbackRef.current) {
+          stopRingbackRef.current();
+          stopRingbackRef.current = null;
+        }
         setConnectionStatus('Connecting...');
+
+        // Instant answer if offer was already ready in joinData!
+        if (joinData.offer && !pc.currentRemoteDescription) {
+          await handleRemoteOffer(joinData.offer);
+        }
       }
 
       // Fast Polling loop (150ms) for ultra-responsive WebRTC signaling
@@ -668,51 +798,7 @@ export function LiveCallStage({
           }
 
           if (peerRoleRef.current === 'callee' && pollData.offer && !pc.currentRemoteDescription) {
-            try {
-              await pc.setRemoteDescription(new RTCSessionDescription(pollData.offer));
-              remoteDescriptionSetRef.current = true;
-
-              const answer = await pc.createAnswer();
-              let localAnswerSdp = answer.sdp || '';
-              try {
-                const optimized = optimizeSdpForNetwork(answer.sdp || '');
-                await pc.setLocalDescription({ type: answer.type, sdp: optimized });
-                localAnswerSdp = optimized;
-              } catch (ansErr) {
-                console.warn('Optimized answer SDP fallback to raw SDP:', ansErr);
-                await pc.setLocalDescription({ type: answer.type, sdp: answer.sdp });
-                localAnswerSdp = answer.sdp || '';
-              }
-
-              await fetch('/api/call', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  action: 'answer',
-                  roomId: canonicalRoom,
-                  peerId: currentPeerId,
-                  answer: { type: answer.type, sdp: localAnswerSdp },
-                  sdp: { type: answer.type, sdp: localAnswerSdp }
-                })
-              });
-
-              applyKmcSenderParameters(pc, 'high');
-
-              while (pendingCandidatesRef.current.length > 0) {
-                const cand = pendingCandidatesRef.current.shift();
-                if (cand && (cand.candidate || cand.sdpMid !== undefined)) {
-                  try {
-                    await pc.addIceCandidate(new RTCIceCandidate(cand));
-                  } catch (ce) {}
-                }
-              }
-
-              setConnectionStatus('Connected');
-              setPartnerJoined(true);
-              setCallConnected(true);
-            } catch (e) {
-              console.error('[WebRTC] Callee negotiation error:', e);
-            }
+            await handleRemoteOffer(pollData.offer);
           }
 
           if (peerRoleRef.current === 'caller' && pollData.answer && !pc.currentRemoteDescription) {
@@ -730,13 +816,14 @@ export function LiveCallStage({
                 }
               }
 
-              setConnectionStatus('Connected');
-              setPartnerJoined(true);
-              setCallConnected(true);
+              callRingtone.stopAll();
               if (stopRingbackRef.current) {
                 stopRingbackRef.current();
                 stopRingbackRef.current = null;
               }
+              setConnectionStatus('Connected');
+              setPartnerJoined(true);
+              setCallConnected(true);
             } catch (e) {
               console.error('[WebRTC] Caller remote answer error:', e);
             }
@@ -936,9 +1023,9 @@ export function LiveCallStage({
 
     try {
       const fresh = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false
-      });
+      }).catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
       const newTrack = fresh.getVideoTracks()[0];
       if (!newTrack || !pc) return;
 
@@ -1023,6 +1110,7 @@ export function LiveCallStage({
     if (endedRef.current) return;
     endedRef.current = true;
 
+    callRingtone.stopAll();
     if (stopRingbackRef.current) {
       stopRingbackRef.current();
       stopRingbackRef.current = null;
