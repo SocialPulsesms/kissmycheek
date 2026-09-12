@@ -34,8 +34,22 @@ function getCallPersistencePath(): string | null {
 }
 
 const DEFAULT_CALL_HISTORY: CallHistoryItem[] = [];
+let testHistory: CallHistoryItem[] | null = null;
+
+function isTestEnv() {
+  return Boolean(process.env.JEST_WORKER_ID) || process.env.NODE_ENV === 'test';
+}
+
+export function resetCallHistoryStore() {
+  testHistory = [];
+}
 
 export function getPersistentCallHistory(): CallHistoryItem[] {
+  if (isTestEnv()) {
+    if (!testHistory) testHistory = [];
+    return testHistory;
+  }
+
   const filePath = getCallPersistencePath();
   if (!filePath) return DEFAULT_CALL_HISTORY;
 
@@ -56,6 +70,11 @@ export function getPersistentCallHistory(): CallHistoryItem[] {
 }
 
 export function savePersistentCallHistory(history: CallHistoryItem[]): void {
+  if (isTestEnv()) {
+    testHistory = history;
+    return;
+  }
+
   const filePath = getCallPersistencePath();
   if (!filePath) return;
   try {

@@ -27,7 +27,7 @@ import {
 import { MemberProfile } from '@/lib/mockData';
 import { CreditsAndGiftingModal } from '@/components/ui/CreditsAndGiftingModal';
 import { BespokeGift } from '@/lib/creditsStore';
-import { getCanonicalRoomId } from '@/lib/callSignalingStore';
+import { getCanonicalRoomId } from '@/lib/callRoomId';
 import { callRingtone } from '@/lib/callRingtone';
 import { DEFAULT_RTC_CONFIGURATION, optimizeSdpForNetwork, KMC_LUXE_FILTERS, FilterKey, applyKmcSenderParameters } from '@/lib/webrtcIceConfig';
 
@@ -101,7 +101,7 @@ export function LiveCallStage({
         if (s.customName || s.fullName || s.name) return s.customName || s.fullName || s.name;
       }
     } catch {}
-    return 'Lord henry';
+    return 'Exclusive Member';
   };
 
   // Real WebRTC 2-Way Live Stream state
@@ -142,6 +142,10 @@ export function LiveCallStage({
   const remoteDescriptionSetRef = useRef<boolean>(false);
   const iceCandidateBufferRef = useRef<any[]>([]);
   const iceCandidateTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const endedRef = useRef(false);
+  const callConnectedRef = useRef(false);
+  const secondsElapsedRef = useRef(0);
+  const handleEndCallRef = useRef<(opts?: { remote?: boolean }) => void>(() => {});
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -221,13 +225,21 @@ export function LiveCallStage({
     } catch (e) {}
   };
 
-  // Duration timer
+  // Duration timer — only after the other member is actually connected
   useEffect(() => {
+    callConnectedRef.current = callConnected;
+    if (!callConnected) return;
+    setSecondsElapsed(0);
+    secondsElapsedRef.current = 0;
     const timer = setInterval(() => {
-      setSecondsElapsed(prev => prev + 1);
+      setSecondsElapsed(prev => {
+        const next = prev + 1;
+        secondsElapsedRef.current = next;
+        return next;
+      });
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [callConnected]);
 
   // WebRTC Media & Signaling Initialization
   const initializeMediaAndSignaling = async (targetFacingMode: 'user' | 'environment' = 'user') => {
@@ -236,7 +248,17 @@ export function LiveCallStage({
       setRoomId(canonicalRoom);
       roomIdRef.current = canonicalRoom;
 
-      const currentPeerId = `peer-${Math.random().toString(36).substring(2, 9)}`;
+      let currentPeerId = '';
+      try {
+        const peerKey = `kmc_call_peer_${canonicalRoom}`;
+        currentPeerId = sessionStorage.getItem(peerKey) || '';
+        if (!currentPeerId) {
+          currentPeerId = `peer-${Math.random().toString(36).substring(2, 9)}`;
+          sessionStorage.setItem(peerKey, currentPeerId);
+        }
+      } catch {
+        currentPeerId = `peer-${Math.random().toString(36).substring(2, 9)}`;
+      }
       setPeerId(currentPeerId);
       peerIdRef.current = currentPeerId;
 
@@ -254,23 +276,23 @@ export function LiveCallStage({
             noiseSuppression: true,
             autoGainControl: true
           },
-          video: callMode === 'video' ? {
+          video: {
             facingMode: targetFacingMode,
             width: { ideal: 1280 },
             height: { ideal: 720 }
-          } : false
+          }
         });
       } catch (e1) {
         try {
           localStream = await navigator.mediaDevices.getUserMedia({
             audio: true,
-            video: callMode === 'video' ? { facingMode: targetFacingMode } : false
+            video: { facingMode: targetFacingMode }
           });
         } catch (e2) {
           try {
             localStream = await navigator.mediaDevices.getUserMedia({
               audio: true,
-              video: callMode === 'video' ? true : false
+              video: true
             });
           } catch (e3) {
             try {
@@ -283,6 +305,11 @@ export function LiveCallStage({
       }
 
       if (localStream) {
+        if (callMode === 'voice' || cameraOff) {
+          localStream.getVideoTracks().forEach(track => {
+            track.enabled = false;
+          });
+        }
         localStreamRef.current = localStream;
         setLocalMediaStream(localStream);
         if (localVideoRef.current) {
@@ -294,7 +321,16 @@ export function LiveCallStage({
         setConnectionStatus('Connecting...');
       }
 
-      const pc = new RTCPeerConnection(DEFAULT_RTC_CONFIGURATION);
+      let rtcConfig: RTCConfiguration = DEFAULT_RTC_CONFIGURATION;
+      try {
+        const iceRes = await fetch('/api/ice-servers');
+        const iceData = await iceRes.json();
+        if (Array.isArray(iceData?.iceServers) && iceData.iceServers.length > 0) {
+          rtcConfig = { ...DEFAULT_RTC_CONFIGURATION, iceServers: iceData.iceServers };
+        }
+      } catch {}
+
+      const pc = new RTCPeerConnection(rtcConfig);
       peerConnectionRef.current = pc;
 
       if (localStream) {
@@ -305,9 +341,7 @@ export function LiveCallStage({
       try {
         if (pc.getTransceivers().length === 0) {
           pc.addTransceiver('audio', { direction: 'sendrecv' });
-          if (callMode === 'video') {
-            pc.addTransceiver('video', { direction: 'sendrecv' });
-          }
+          pc.addTransceiver('video', { direction: 'sendrecv' });
         }
       } catch (e) {}
 
@@ -384,6 +418,7 @@ export function LiveCallStage({
                     action: 'ice_candidate_batch',
                     roomId: canonicalRoom,
                     peerId: currentPeerId,
+                    role: peerRoleRef.current,
                     candidates: batch
                   })
                 }).catch(() => {});
@@ -440,6 +475,30 @@ export function LiveCallStage({
         }
       };
 
+      const intendedRole = initialRole || 'caller';
+
+      // Caller: create the invite BEFORE joining. If messages already rang the
+      // callee, the store keeps the in-flight room instead of wiping SDP/ICE.
+      if (intendedRole === 'caller') {
+        try {
+          await fetch('/api/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            keepalive: true,
+            body: JSON.stringify({
+              action: 'initiate_call',
+              roomId: canonicalRoom,
+              callerId: currentUserId || 'caller',
+              callerName: currentUserName || 'Exclusive Member',
+              callerPhoto: currentUserPhoto,
+              calleeId: partnerId,
+              calleeName: partnerName,
+              callMode: callMode
+            })
+          });
+        } catch {}
+      }
+
       // Register presence & join room
       const joinRes = await fetch('/api/call', {
         method: 'POST',
@@ -451,7 +510,8 @@ export function LiveCallStage({
           userId: currentUserId,
           userName: currentUserName,
           userPhoto: currentUserPhoto,
-          role: initialRole || 'caller'
+          role: intendedRole,
+          preferredRole: intendedRole
         })
       });
       const joinData = await joinRes.json();
@@ -464,26 +524,9 @@ export function LiveCallStage({
         stopRingbackRef.current = callRingtone.startOutgoingRingback();
         setConnectionStatus('Calling member...');
 
-        // Broadcast call invitation to ensure Callee device immediately rings
-        fetch('/api/call', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          keepalive: true,
-          body: JSON.stringify({
-            action: 'initiate_call',
-            roomId: canonicalRoom,
-            callerId: currentUserId || 'caller',
-            callerName: currentUserName || 'Exclusive Member',
-            callerPhoto: currentUserPhoto,
-            calleeId: partnerId,
-            calleeName: partnerName,
-            callMode: callMode
-          })
-        }).catch(() => {});
-
         const offer = await pc.createOffer({
           offerToReceiveAudio: true,
-          offerToReceiveVideo: callMode === 'video'
+          offerToReceiveVideo: true
         });
         const optimizedSdp = optimizeSdpForNetwork(offer.sdp || '');
         await pc.setLocalDescription({ type: offer.type, sdp: optimizedSdp });
@@ -522,8 +565,15 @@ export function LiveCallStage({
           if (!pollRes.ok) return;
           const pollData = await pollRes.json();
 
-          if (pollData.roomStatus === 'cancelled') {
-            handleEndCall();
+          const remoteEnded =
+            pollData.inviteStatus === 'DECLINED' ||
+            pollData.inviteStatus === 'CANCELLED' ||
+            pollData.inviteStatus === 'ENDED' ||
+            pollData.status === 'ENDED' ||
+            pollData.roomStatus === 'cancelled';
+
+          if (remoteEnded) {
+            handleEndCallRef.current({ remote: true });
             return;
           }
 
@@ -707,7 +757,8 @@ export function LiveCallStage({
   }, [isSwappedView, callConnected, hasRemoteVideo, callMode]);
 
   useEffect(() => {
-    initializeMediaAndSignaling(facingMode);
+    endedRef.current = false;
+    initializeMediaAndSignaling('user');
 
     return () => {
       if (stopRingbackRef.current) {
@@ -715,6 +766,7 @@ export function LiveCallStage({
         stopRingbackRef.current = null;
       }
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (iceCandidateTimerRef.current) clearTimeout(iceCandidateTimerRef.current);
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       if (audioContextRef.current) {
         try { audioContextRef.current.close(); } catch {}
@@ -725,7 +777,8 @@ export function LiveCallStage({
       if (peerConnectionRef.current) {
         try { peerConnectionRef.current.close(); } catch {}
       }
-      if (roomIdRef.current && peerIdRef.current) {
+      // Detach from the room on remount, but do not mark the call ENDED.
+      if (!endedRef.current && roomIdRef.current && peerIdRef.current) {
         fetch('/api/call', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -738,7 +791,7 @@ export function LiveCallStage({
         }).catch(() => {});
       }
     };
-  }, [partnerId, callMode]);
+  }, [partnerId, initialRoomId]);
 
   const toggleMic = () => {
     if (localStreamRef.current) {
@@ -762,15 +815,94 @@ export function LiveCallStage({
     }
   };
 
-  const switchCallMode = (newMode: 'voice' | 'video') => {
+  const switchCallMode = async (newMode: 'voice' | 'video') => {
+    if (newMode === callMode) return;
     setCallMode(newMode);
-    setCameraOff(newMode === 'voice');
+
+    const stream = localStreamRef.current;
+    const pc = peerConnectionRef.current;
+    const turnVideoOff = newMode === 'voice';
+
+    if (turnVideoOff) {
+      stream?.getVideoTracks().forEach(track => {
+        track.enabled = false;
+      });
+      setCameraOff(true);
+      sendCallEvent('media_state', { cameraOff: true });
+      return;
+    }
+
+    const existingVideo = stream?.getVideoTracks()[0];
+    if (existingVideo) {
+      existingVideo.enabled = true;
+      setCameraOff(false);
+      sendCallEvent('media_state', { cameraOff: false });
+      return;
+    }
+
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      const newTrack = fresh.getVideoTracks()[0];
+      if (!newTrack || !pc) return;
+
+      const sender = pc.getSenders().find(s => s.track?.kind === 'video') || pc.getSenders().find(s => !s.track);
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+      } else {
+        pc.addTrack(newTrack, stream || fresh);
+      }
+
+      if (stream) {
+        stream.addTrack(newTrack);
+        setLocalMediaStream(stream);
+      } else {
+        localStreamRef.current = fresh;
+        setLocalMediaStream(fresh);
+      }
+
+      if (localVideoRef.current && localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.play().catch(() => {});
+      }
+
+      setCameraOff(false);
+      sendCallEvent('media_state', { cameraOff: false });
+    } catch {
+      setCallMode('voice');
+    }
   };
 
-  const handleFlipCamera = () => {
+  const handleFlipCamera = async () => {
+    if (!localStreamRef.current || !peerConnectionRef.current) return;
     const nextFacing = facingMode === 'user' ? 'environment' : 'user';
-    setFacingMode(nextFacing);
-    initializeMediaAndSignaling(nextFacing);
+    try {
+      const fresh = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+      const newTrack = fresh.getVideoTracks()[0];
+      if (!newTrack) return;
+
+      const sender = peerConnectionRef.current.getSenders().find(s => s.track?.kind === 'video');
+      if (sender) {
+        await sender.replaceTrack(newTrack);
+      }
+
+      localStreamRef.current.getVideoTracks().forEach(track => {
+        localStreamRef.current?.removeTrack(track);
+        track.stop();
+      });
+      localStreamRef.current.addTrack(newTrack);
+      setLocalMediaStream(localStreamRef.current);
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+        localVideoRef.current.play().catch(() => {});
+      }
+      setFacingMode(nextFacing);
+    } catch {}
   };
 
   const toggleSpeaker = () => {
@@ -787,7 +919,10 @@ export function LiveCallStage({
     }, 5000);
   };
 
-  const handleEndCall = () => {
+  const handleEndCall = (opts?: { remote?: boolean }) => {
+    if (endedRef.current) return;
+    endedRef.current = true;
+
     if (stopRingbackRef.current) {
       stopRingbackRef.current();
       stopRingbackRef.current = null;
@@ -795,6 +930,7 @@ export function LiveCallStage({
     callRingtone.playCallEndTone();
 
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    if (iceCandidateTimerRef.current) clearTimeout(iceCandidateTimerRef.current);
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
@@ -803,15 +939,45 @@ export function LiveCallStage({
       try { peerConnectionRef.current.close(); } catch {}
     }
 
-    if (roomId) {
+    const activeRoomId = roomIdRef.current || roomId;
+    const activePeerId = peerIdRef.current || peerId;
+    if (activeRoomId && !opts?.remote) {
       fetch('/api/call', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'cancel_call', roomId, peerId })
+        keepalive: true,
+        body: JSON.stringify({
+          action: callConnectedRef.current ? 'end_call' : 'cancel_call',
+          roomId: activeRoomId,
+          peerId: activePeerId
+        })
       }).catch(() => {});
     }
 
-    const durationText = formatTimer(secondsElapsed > 0 ? secondsElapsed : 25);
+    const elapsed = secondsElapsedRef.current;
+    const durationText = formatTimer(elapsed > 0 ? elapsed : 0);
+
+    try {
+      fetch('/api/call-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        keepalive: true,
+        body: JSON.stringify({
+          partnerId,
+          partnerName,
+          partnerPhoto,
+          partnerOccupation,
+          callType: callMode,
+          durationSeconds: elapsed,
+          durationFormatted: durationText,
+          status: callConnectedRef.current ? 'completed' : (opts?.remote ? 'declined' : 'missed')
+        })
+      }).catch(() => {});
+    } catch {}
+
+    try {
+      sessionStorage.removeItem(`kmc_call_peer_${activeRoomId}`);
+    } catch {}
     
     // Log in local chat cache
     try {
@@ -850,6 +1016,7 @@ export function LiveCallStage({
       onEndCall(durationText);
     }
   };
+  handleEndCallRef.current = handleEndCall;
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);

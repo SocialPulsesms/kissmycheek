@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# live WebRTC signaling (SDP / ICE) — must not be committed
+.data/persistent_call_signaling.json
+
 # vercel
 .vercel
 

@@ -1,5 +1,9 @@
-// In-memory WebRTC Signaling Store for Kiss My Cheek Live 2-Way Video Calling
-// Ensures instant, rock-solid P2P connection exchange without database dependencies
+// WebRTC signaling store. Memory-first with a JSON file write-through so
+// PM2 restarts and a second Node worker on the same VPS still see live rooms.
+
+import { getCanonicalRoomId } from './callRoomId';
+
+export { getCanonicalRoomId };
 
 export interface CallPeer {
   id: string;
@@ -16,6 +20,9 @@ export interface CallRoomEvent {
   timestamp: number;
 }
 
+export type CallRoomStatus = 'WAITING' | 'CONNECTING' | 'CONNECTED' | 'ENDED';
+export type CallInviteStatus = 'RINGING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED' | 'ENDED';
+
 export interface CallRoom {
   roomId: string;
   createdAt: number;
@@ -30,7 +37,7 @@ export interface CallRoom {
   callerCandidates: any[];
   calleeCandidates: any[];
   events: CallRoomEvent[];
-  status: 'WAITING' | 'CONNECTING' | 'CONNECTED' | 'ENDED';
+  status: CallRoomStatus;
 }
 
 export interface ActiveCallInvite {
@@ -43,7 +50,7 @@ export interface ActiveCallInvite {
   calleeName?: string;
   calleeEmail?: string;
   callMode: 'voice' | 'video';
-  status: 'RINGING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED' | 'ENDED';
+  status: CallInviteStatus;
   createdAt: number;
   updatedAt: number;
 }
@@ -51,6 +58,8 @@ export interface ActiveCallInvite {
 const globalForCallSignaling = globalThis as unknown as {
   activeCallRooms?: Map<string, CallRoom>;
   activeCallInvites?: Map<string, ActiveCallInvite>;
+  callSignalingHydrated?: boolean;
+  callSignalingPersistTimer?: ReturnType<typeof setTimeout> | null;
 };
 
 if (!globalForCallSignaling.activeCallRooms) {
@@ -64,40 +73,143 @@ if (!globalForCallSignaling.activeCallInvites) {
 export const activeCallRooms = globalForCallSignaling.activeCallRooms!;
 export const activeCallInvites = globalForCallSignaling.activeCallInvites!;
 
-// Auto-purge rooms older than 4 hours
+function isTestEnv() {
+  return Boolean(process.env.JEST_WORKER_ID) || process.env.NODE_ENV === 'test';
+}
+
+/** Clears live rooms/invites. Used by Jest so cases do not leak into each other. */
+export function resetCallSignalingStore() {
+  activeCallRooms.clear();
+  activeCallInvites.clear();
+  globalForCallSignaling.callSignalingHydrated = true;
+  if (globalForCallSignaling.callSignalingPersistTimer) {
+    clearTimeout(globalForCallSignaling.callSignalingPersistTimer);
+    globalForCallSignaling.callSignalingPersistTimer = null;
+  }
+}
+
+function getPersistencePath(): string | null {
+  if (typeof window !== 'undefined') return null;
+  try {
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const dataDir = path.join(process.cwd(), '.data');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    return path.join(dataDir, 'persistent_call_signaling.json');
+  } catch {
+    return null;
+  }
+}
+
+function persistNow() {
+  if (typeof window !== 'undefined' || isTestEnv()) return;
+  const filePath = getPersistencePath();
+  if (!filePath) return;
+  try {
+    const fs = require('fs') as typeof import('fs');
+    const rooms: Record<string, CallRoom> = {};
+    for (const [id, room] of activeCallRooms.entries()) {
+      rooms[id] = room;
+    }
+    const invites: Record<string, ActiveCallInvite> = {};
+    for (const invite of activeCallInvites.values()) {
+      invites[invite.callId] = invite;
+      invites[invite.roomId] = invite;
+    }
+    fs.writeFileSync(filePath, JSON.stringify({ rooms, invites, savedAt: Date.now() }), 'utf-8');
+  } catch (err) {
+    console.warn('Call signaling persist error:', err);
+  }
+}
+
+function schedulePersist() {
+  if (typeof window !== 'undefined' || isTestEnv()) return;
+  if (globalForCallSignaling.callSignalingPersistTimer) {
+    clearTimeout(globalForCallSignaling.callSignalingPersistTimer);
+  }
+  globalForCallSignaling.callSignalingPersistTimer = setTimeout(persistNow, 30);
+}
+
+function hydrateFromDisk() {
+  if (typeof window !== 'undefined' || isTestEnv()) {
+    globalForCallSignaling.callSignalingHydrated = true;
+    return;
+  }
+  if (globalForCallSignaling.callSignalingHydrated) return;
+  globalForCallSignaling.callSignalingHydrated = true;
+
+  const filePath = getPersistencePath();
+  if (!filePath) return;
+  try {
+    const fs = require('fs') as typeof import('fs');
+    if (!fs.existsSync(filePath)) return;
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+    if (parsed?.rooms && typeof parsed.rooms === 'object') {
+      for (const [id, room] of Object.entries(parsed.rooms as Record<string, CallRoom>)) {
+        if (!activeCallRooms.has(id) && room && room.roomId) {
+          if (!room.events) room.events = [];
+          activeCallRooms.set(id, room);
+        }
+      }
+    }
+    if (parsed?.invites && typeof parsed.invites === 'object') {
+      for (const [id, invite] of Object.entries(parsed.invites as Record<string, ActiveCallInvite>)) {
+        if (!activeCallInvites.has(id) && invite && invite.callId) {
+          activeCallInvites.set(id, invite);
+          if (invite.roomId) activeCallInvites.set(invite.roomId, invite);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Call signaling hydrate error:', err);
+  }
+}
+
+function ensureReady() {
+  hydrateFromDisk();
+}
+
 function cleanStaleRooms() {
   const cutoff = Date.now() - 4 * 60 * 60 * 1000;
+  let removed = false;
   for (const [id, room] of activeCallRooms.entries()) {
-    if (room.createdAt < cutoff) {
+    if (room.createdAt < cutoff || (room.status === 'ENDED' && Date.now() - room.createdAt > 60_000)) {
       activeCallRooms.delete(id);
+      removed = true;
     }
   }
+  if (removed) schedulePersist();
 }
 
-// Auto-purge call invites older than 60 seconds
 export function cleanStaleInvites() {
+  ensureReady();
   const now = Date.now();
+  let removed = false;
   for (const [id, invite] of activeCallInvites.entries()) {
-    // Purge ringing invites older than 45 seconds
-    if (invite.status === 'RINGING' && now - invite.createdAt > 45000) {
+    if (invite.status === 'RINGING' && now - invite.createdAt > 45_000) {
+      invite.status = 'ENDED';
+      invite.updatedAt = now;
+      const room = activeCallRooms.get(invite.roomId);
+      if (room && room.status !== 'CONNECTED') room.status = 'ENDED';
+      removed = true;
+    } else if (
+      (invite.status === 'DECLINED' || invite.status === 'CANCELLED' || invite.status === 'ENDED') &&
+      now - invite.updatedAt > 45_000
+    ) {
       activeCallInvites.delete(id);
-    } else if (invite.status !== 'RINGING' && now - invite.updatedAt > 15000) {
+      removed = true;
+    } else if (invite.status === 'ACCEPTED' && now - invite.updatedAt > 120_000) {
       activeCallInvites.delete(id);
+      removed = true;
     }
   }
-}
-
-export function getCanonicalRoomId(userA: string, userB: string): string {
-  const cleanA = String(userA || '').trim();
-  const cleanB = String(userB || '').trim();
-  if (!cleanA && !cleanB) return `call_room_${Date.now()}`;
-  if (!cleanA) return `call_${cleanB}`;
-  if (!cleanB) return `call_${cleanA}`;
-  const sorted = [cleanA, cleanB].sort();
-  return `call_${sorted[0]}__${sorted[1]}`;
+  if (removed) schedulePersist();
 }
 
 export function getOrCreateRoom(roomId: string): CallRoom {
+  ensureReady();
   cleanStaleRooms();
   let room = activeCallRooms.get(roomId);
   if (!room) {
@@ -118,6 +230,7 @@ export function getOrCreateRoom(roomId: string): CallRoom {
       status: 'WAITING'
     };
     activeCallRooms.set(roomId, room);
+    schedulePersist();
   } else if (!room.events) {
     room.events = [];
   }
@@ -125,13 +238,13 @@ export function getOrCreateRoom(roomId: string): CallRoom {
 }
 
 export function joinRoom(
-  roomId: string, 
-  peerId: string, 
+  roomId: string,
+  peerId: string,
   preferredRole?: 'caller' | 'callee',
   userName?: string,
   userPhoto?: string
-): { 
-  role: 'caller' | 'callee'; 
+): {
+  role: 'caller' | 'callee';
   room: CallRoom;
   offer?: any;
   answer?: any;
@@ -142,13 +255,11 @@ export function joinRoom(
 
   let role: 'caller' | 'callee';
 
-  // If this peer is already registered
   if (room.callerId === peerId) {
     role = 'caller';
   } else if (room.calleeId === peerId) {
     role = 'callee';
   } else if (preferredRole === 'caller') {
-    // Caller joined/re-joined: if new peerId, reset stale session signals
     if (room.callerId !== peerId) {
       room.callerId = peerId;
       room.offer = null;
@@ -156,11 +267,11 @@ export function joinRoom(
       room.callerCandidates = [];
       room.calleeCandidates = [];
       room.events = [];
-      room.status = 'WAITING';
+      if (room.status === 'ENDED') room.status = 'WAITING';
+      else room.status = 'WAITING';
     }
     role = 'caller';
   } else if (preferredRole === 'callee') {
-    // Callee joined/re-joined
     if (room.calleeId !== peerId) {
       room.calleeId = peerId;
       room.answer = null;
@@ -182,7 +293,6 @@ export function joinRoom(
     role = 'callee';
   }
 
-  // Update peer name & photo
   if (role === 'caller') {
     if (userName && userName !== 'Club Member' && userName !== 'Exclusive Member') {
       room.callerName = userName;
@@ -195,7 +305,6 @@ export function joinRoom(
     if (userPhoto) room.calleePhoto = userPhoto;
   }
 
-  // Inherit from active invite if available
   const invite = activeCallInvites.get(roomId);
   if (invite) {
     if (!room.callerName && invite.callerName && invite.callerName !== 'Club Member') {
@@ -208,6 +317,8 @@ export function joinRoom(
       room.calleeName = invite.calleeName;
     }
   }
+
+  schedulePersist();
 
   const isCaller = role === 'caller';
   return {
@@ -223,6 +334,7 @@ export function joinRoom(
 export function setRoomOffer(roomId: string, peerId: string, offer: any): boolean {
   const room = getOrCreateRoom(roomId);
   room.offer = offer;
+  schedulePersist();
   return true;
 }
 
@@ -230,6 +342,12 @@ export function setRoomAnswer(roomId: string, peerId: string, answer: any): bool
   const room = getOrCreateRoom(roomId);
   room.answer = answer;
   room.status = 'CONNECTED';
+  const invite = activeCallInvites.get(roomId);
+  if (invite && invite.status === 'RINGING') {
+    invite.status = 'ACCEPTED';
+    invite.updatedAt = Date.now();
+  }
+  schedulePersist();
   return true;
 }
 
@@ -237,22 +355,26 @@ export function addIceCandidate(roomId: string, peerId: string, candidate: any, 
   const room = getOrCreateRoom(roomId);
   if (!candidate) return false;
 
-  if (peerId === room.callerId || fallbackRole === 'caller') {
+  if (peerId === room.callerId || (fallbackRole === 'caller' && peerId !== room.calleeId)) {
     room.callerCandidates.push(candidate);
+    schedulePersist();
     return true;
   }
-  if (peerId === room.calleeId || fallbackRole === 'callee') {
+  if (peerId === room.calleeId || (fallbackRole === 'callee' && peerId !== room.callerId)) {
     room.calleeCandidates.push(candidate);
+    schedulePersist();
     return true;
   }
   if (!room.callerId) {
     room.callerId = peerId;
     room.callerCandidates.push(candidate);
+    schedulePersist();
     return true;
   }
   if (!room.calleeId && peerId !== room.callerId) {
     room.calleeId = peerId;
     room.calleeCandidates.push(candidate);
+    schedulePersist();
     return true;
   }
   return false;
@@ -262,22 +384,26 @@ export function addIceCandidates(roomId: string, peerId: string, candidates: any
   const room = getOrCreateRoom(roomId);
   if (!Array.isArray(candidates) || candidates.length === 0) return false;
 
-  if (peerId === room.callerId || fallbackRole === 'caller') {
+  if (peerId === room.callerId || (fallbackRole === 'caller' && peerId !== room.calleeId)) {
     room.callerCandidates.push(...candidates);
+    schedulePersist();
     return true;
   }
-  if (peerId === room.calleeId || fallbackRole === 'callee') {
+  if (peerId === room.calleeId || (fallbackRole === 'callee' && peerId !== room.callerId)) {
     room.calleeCandidates.push(...candidates);
+    schedulePersist();
     return true;
   }
   if (!room.callerId) {
     room.callerId = peerId;
     room.callerCandidates.push(...candidates);
+    schedulePersist();
     return true;
   }
   if (!room.calleeId && peerId !== room.callerId) {
     room.calleeId = peerId;
     room.calleeCandidates.push(...candidates);
+    schedulePersist();
     return true;
   }
   return false;
@@ -297,7 +423,26 @@ export function addRoomEvent(roomId: string, event: { senderPeerId: string; type
   if (room.events.length > 50) {
     room.events = room.events.slice(-50);
   }
+  schedulePersist();
   return true;
+}
+
+export function endCallSession(roomId: string, reason: 'ENDED' | 'CANCELLED' | 'DECLINED' = 'ENDED'): boolean {
+  ensureReady();
+  const now = Date.now();
+  const invite = activeCallInvites.get(roomId);
+  if (invite) {
+    invite.status = reason;
+    invite.updatedAt = now;
+    activeCallInvites.set(invite.callId, invite);
+    activeCallInvites.set(invite.roomId, invite);
+  }
+  const room = activeCallRooms.get(roomId);
+  if (room) {
+    room.status = 'ENDED';
+  }
+  schedulePersist();
+  return Boolean(invite || room);
 }
 
 export function getRoomPollState(
@@ -307,16 +452,34 @@ export function getRoomPollState(
   lastEventTimestamp: number = 0,
   fallbackRole?: 'caller' | 'callee'
 ) {
+  ensureReady();
+  cleanStaleInvites();
   const room = activeCallRooms.get(roomId);
+  const invite = activeCallInvites.get(roomId);
+
   if (!room) {
+    if (invite && (invite.status === 'DECLINED' || invite.status === 'CANCELLED' || invite.status === 'ENDED')) {
+      return {
+        success: true,
+        status: 'ENDED' as const,
+        roomStatus: 'cancelled',
+        inviteStatus: invite.status,
+        role: fallbackRole || 'observer',
+        hasPartner: false,
+        offer: undefined,
+        answer: undefined,
+        candidates: [],
+        nextCandidateIndex: lastCandidateIndex,
+        events: []
+      };
+    }
     return { error: 'Room not found' };
   }
 
-  const isCaller = peerId === room.callerId || fallbackRole === 'caller';
-  const isCallee = peerId === room.calleeId || fallbackRole === 'callee';
+  const isCaller = peerId === room.callerId || (fallbackRole === 'caller' && peerId !== room.calleeId);
+  const isCallee = peerId === room.calleeId || (fallbackRole === 'callee' && peerId !== room.callerId);
   const hasPartner = Boolean(room.callerId && room.calleeId);
 
-  // Candidates intended for this peer (from the other peer)
   let incomingCandidates: any[] = [];
   let totalCandidatesAvailable = 0;
 
@@ -328,14 +491,22 @@ export function getRoomPollState(
     totalCandidatesAvailable = room.callerCandidates.length;
   }
 
-  // Real-time events from the other peer (reactions, icebreakers, mic/cam mute state)
   const incomingEvents = (room.events || []).filter(
     e => e.senderPeerId !== peerId && e.timestamp > lastEventTimestamp
   );
 
+  const inviteStatus = invite?.status;
+  const remoteEnded =
+    room.status === 'ENDED' ||
+    inviteStatus === 'DECLINED' ||
+    inviteStatus === 'CANCELLED' ||
+    inviteStatus === 'ENDED';
+
   return {
     success: true,
     status: room.status,
+    roomStatus: remoteEnded ? 'cancelled' : room.status,
+    inviteStatus,
     role: isCaller ? 'caller' : isCallee ? 'callee' : 'observer',
     hasPartner,
     offer: isCallee ? room.offer : undefined,
@@ -349,6 +520,7 @@ export function getRoomPollState(
 }
 
 export function leaveRoom(roomId: string, peerId: string) {
+  ensureReady();
   const room = activeCallRooms.get(roomId);
   if (!room) return;
 
@@ -362,14 +534,12 @@ export function leaveRoom(roomId: string, peerId: string) {
     room.calleeCandidates = [];
   }
 
-  if (!room.callerId && !room.calleeId) {
-    activeCallRooms.delete(roomId);
-  } else {
+  if (!room.callerId && !room.calleeId && room.status !== 'ENDED') {
     room.status = 'WAITING';
   }
+  schedulePersist();
 }
 
-// Call Invite Signal Handlers
 export function initiateCallInvite(data: {
   roomId: string;
   callerId: string;
@@ -380,18 +550,35 @@ export function initiateCallInvite(data: {
   calleeEmail?: string;
   callMode: 'voice' | 'video';
 }): ActiveCallInvite {
+  ensureReady();
   cleanStaleInvites();
   const now = Date.now();
-  const callId = `call_inv_${now}_${Math.random().toString(36).substring(2, 7)}`;
-  
-  // Clean previous invite for this room or callee
+
+  const existingInvite = activeCallInvites.get(data.roomId);
+  const isSameInFlightInvite = Boolean(
+    existingInvite &&
+    existingInvite.status === 'RINGING' &&
+    existingInvite.callerId === data.callerId &&
+    now - existingInvite.createdAt < 45_000
+  );
+
+  if (isSameInFlightInvite && existingInvite) {
+    if (data.callerName) existingInvite.callerName = data.callerName;
+    if (data.callerPhoto) existingInvite.callerPhoto = data.callerPhoto;
+    if (data.calleeName) existingInvite.calleeName = data.calleeName;
+    if (data.calleeEmail) existingInvite.calleeEmail = data.calleeEmail;
+    if (data.callMode) existingInvite.callMode = data.callMode;
+    existingInvite.updatedAt = now;
+    schedulePersist();
+    return existingInvite;
+  }
+
   for (const [id, inv] of activeCallInvites.entries()) {
     if (inv.roomId === data.roomId || (inv.calleeId === data.calleeId && inv.callerId === data.callerId)) {
       activeCallInvites.delete(id);
     }
   }
 
-  // Reset any existing room state for this room ID so past call artifacts don't corrupt the new session
   const existingRoom = activeCallRooms.get(data.roomId);
   if (existingRoom) {
     existingRoom.callerId = null;
@@ -405,6 +592,7 @@ export function initiateCallInvite(data: {
     existingRoom.createdAt = now;
   }
 
+  const callId = `call_inv_${now}_${Math.random().toString(36).substring(2, 7)}`;
   const invite: ActiveCallInvite = {
     callId,
     roomId: data.roomId,
@@ -422,32 +610,34 @@ export function initiateCallInvite(data: {
 
   activeCallInvites.set(data.roomId, invite);
   activeCallInvites.set(callId, invite);
+  schedulePersist();
   return invite;
 }
 
-export function getIncomingCallForUser(userId?: string, userEmail?: string, userName?: string): ActiveCallInvite | null {
+export function getIncomingCallForUser(
+  userId?: string,
+  userEmail?: string,
+  extraIds: string[] = []
+): ActiveCallInvite | null {
+  ensureReady();
   cleanStaleInvites();
-  if (!userId && !userEmail && !userName) return null;
-  const cleanId = String(userId || '').trim();
-  const cleanEmail = String(userEmail || '').trim().toLowerCase();
-  const cleanName = String(userName || '').trim().toLowerCase().replace(/\s+/g, '');
-  const now = Date.now();
 
+  const ids = new Set(
+    [userId, ...extraIds]
+      .map((id) => String(id || '').trim())
+      .filter(Boolean)
+  );
+  const cleanEmail = String(userEmail || '').trim().toLowerCase();
+  if (ids.size === 0 && !cleanEmail) return null;
+
+  const now = Date.now();
   for (const invite of activeCallInvites.values()) {
-    const inviteCleanName = (invite.calleeName || '').toLowerCase().replace(/\s+/g, '');
-    const matchId = cleanId && (invite.calleeId === cleanId || cleanId.includes(invite.calleeId) || invite.calleeId.includes(cleanId));
-    const matchEmail = cleanEmail && invite.calleeEmail && invite.calleeEmail.toLowerCase() === cleanEmail;
-    const matchName = cleanName && inviteCleanName && (
-      inviteCleanName === cleanName ||
-      cleanName.includes(inviteCleanName) ||
-      inviteCleanName.includes(cleanName)
+    const matchId = Boolean(invite.calleeId && ids.has(invite.calleeId));
+    const matchEmail = Boolean(
+      cleanEmail && invite.calleeEmail && invite.calleeEmail.toLowerCase() === cleanEmail
     );
 
-    if (
-      (matchId || matchEmail || matchName) &&
-      invite.status === 'RINGING' &&
-      now - invite.createdAt < 45000
-    ) {
+    if ((matchId || matchEmail) && invite.status === 'RINGING' && now - invite.createdAt < 45_000) {
       return invite;
     }
   }
@@ -455,32 +645,27 @@ export function getIncomingCallForUser(userId?: string, userEmail?: string, user
 }
 
 export function getCallInvite(roomIdOrCallId: string): ActiveCallInvite | null {
+  ensureReady();
   cleanStaleInvites();
   if (!roomIdOrCallId) return null;
   return activeCallInvites.get(roomIdOrCallId) || null;
 }
 
 export function acceptCallInvite(roomIdOrCallId: string, calleeId?: string): boolean {
+  ensureReady();
   const invite = activeCallInvites.get(roomIdOrCallId);
   if (!invite) return false;
   invite.status = 'ACCEPTED';
   invite.updatedAt = Date.now();
+  if (calleeId && !invite.calleeId) invite.calleeId = calleeId;
+  schedulePersist();
   return true;
 }
 
 export function declineCallInvite(roomIdOrCallId: string, calleeId?: string): boolean {
-  const invite = activeCallInvites.get(roomIdOrCallId);
-  if (!invite) return false;
-  invite.status = 'DECLINED';
-  invite.updatedAt = Date.now();
-  return true;
+  return endCallSession(activeCallInvites.get(roomIdOrCallId)?.roomId || roomIdOrCallId, 'DECLINED');
 }
 
 export function cancelCallInvite(roomIdOrCallId: string, callerId?: string): boolean {
-  const invite = activeCallInvites.get(roomIdOrCallId);
-  if (!invite) return false;
-  invite.status = 'CANCELLED';
-  invite.updatedAt = Date.now();
-  return true;
+  return endCallSession(activeCallInvites.get(roomIdOrCallId)?.roomId || roomIdOrCallId, 'CANCELLED');
 }
-

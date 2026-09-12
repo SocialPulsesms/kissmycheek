@@ -354,7 +354,7 @@ function MessagesContent() {
         }
       }
       const savedSession = localStorage.getItem('kmc_session');
-      if (savedSession && (!resolvedCallerName || resolvedCallerName === 'Lord henry')) {
+      if (savedSession && (!resolvedCallerName || resolvedCallerName === 'Exclusive Member')) {
         const parsed = JSON.parse(savedSession);
         if (parsed.customName || parsed.fullName || parsed.name) {
           resolvedCallerName = parsed.customName || parsed.fullName || parsed.name;
@@ -433,7 +433,7 @@ function MessagesContent() {
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Member Wallet, Tier, Verification & Gifting modal state
-  const [currentUserName, setCurrentUserName] = useState<string>('Lord henry');
+  const [currentUserName, setCurrentUserName] = useState<string>('Exclusive Member');
   const [memberCredits, setMemberCredits] = useState<number>(180);
   const [userTier, setUserTier] = useState<'STANDARD' | 'ELITE'>('STANDARD');
   const [isVerified, setIsVerified] = useState<boolean>(true);

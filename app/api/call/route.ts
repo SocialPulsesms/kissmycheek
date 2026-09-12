@@ -9,13 +9,13 @@ import {
   addIceCandidates,
   getRoomPollState,
   leaveRoom,
-  activeCallRooms,
   initiateCallInvite,
   getIncomingCallForUser,
   getCallInvite,
   acceptCallInvite,
   declineCallInvite,
   cancelCallInvite,
+  endCallSession,
   addRoomEvent
 } from '@/lib/callSignalingStore';
 
@@ -32,13 +32,16 @@ export async function GET(req: Request) {
       const session = getSessionUser(req);
       const targetUserId = userId || session?.id || session?.userId;
       const targetUserEmail = searchParams.get('email') || session?.email;
-      const targetUserName = searchParams.get('name') || session?.fullName || session?.name;
+      const extraIds = (searchParams.get('ids') || '')
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean);
 
-      if (!targetUserId && !targetUserEmail && !targetUserName) {
+      if (!targetUserId && !targetUserEmail && extraIds.length === 0) {
         return NextResponse.json({ success: true, incomingCall: null });
       }
 
-      const incoming = getIncomingCallForUser(targetUserId, targetUserEmail, targetUserName);
+      const incoming = getIncomingCallForUser(targetUserId, targetUserEmail, extraIds);
       return NextResponse.json({ success: true, incomingCall: incoming });
     }
 
@@ -111,12 +114,12 @@ export async function POST(req: Request) {
       const session = getSessionUser(req);
       const resolvedUserId = userId || peerId || session?.id || session?.userId;
       const resolvedEmail = body.email || session?.email;
-      const resolvedName = body.name || session?.fullName || session?.name;
 
-      if (!resolvedUserId && !resolvedEmail && !resolvedName) {
+      const extraIds = Array.isArray(body.ids) ? body.ids : String(body.ids || '').split(',');
+      if (!resolvedUserId && !resolvedEmail && extraIds.filter(Boolean).length === 0) {
         return NextResponse.json({ success: true, incomingCall: null });
       }
-      const incoming = getIncomingCallForUser(resolvedUserId, resolvedEmail, resolvedName);
+      const incoming = getIncomingCallForUser(resolvedUserId, resolvedEmail, extraIds);
       return NextResponse.json({ success: true, incomingCall: incoming });
     }
 
@@ -147,6 +150,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, message: 'Call cancelled' });
     }
 
+    // E2. End an in-progress call so the other peer's poll sees ENDED
+    if (action === 'end_call') {
+      if (!roomId) {
+        return NextResponse.json({ error: 'Room ID is required' }, { status: 400 });
+      }
+      endCallSession(roomId, 'ENDED');
+      if (peerId) leaveRoom(roomId, peerId);
+      return NextResponse.json({ success: true, message: 'Call ended' });
+    }
+
     // F. Get Call Status
     if (action === 'get_call_status') {
       if (!roomId) {
@@ -165,7 +178,7 @@ export async function POST(req: Request) {
       const result = joinRoom(
         roomId, 
         peerId, 
-        body.preferredRole,
+        body.preferredRole || body.role,
         body.userName,
         body.userPhoto
       );

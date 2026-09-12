@@ -40,6 +40,8 @@ export function GlobalCallManager() {
   const router = useRouter();
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserIds, setCurrentUserIds] = useState<string[]>([]);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
   const [incomingCall, setIncomingCall] = useState<IncomingCallData | null>(null);
   const [activeCallParams, setActiveCallParams] = useState<LiveCallStageProps | null>(null);
   const [ringingSeconds, setRingingSeconds] = useState(0);
@@ -47,31 +49,49 @@ export function GlobalCallManager() {
   const stopRingtoneRef = useRef<(() => void) | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 1. Resolve current user ID
+  // 1. Resolve current user IDs (profile, session, and auth can disagree)
   useEffect(() => {
+    const ids = new Set<string>();
     let resolvedId: string | null = null;
+    let resolvedEmail = '';
     try {
       const savedProfile = localStorage.getItem('kmc_user_profile');
       if (savedProfile) {
         const parsed = JSON.parse(savedProfile);
-        if (parsed.id) resolvedId = parsed.id;
+        if (parsed.id) {
+          ids.add(String(parsed.id));
+          resolvedId = parsed.id;
+        }
+        if (parsed.email) resolvedEmail = parsed.email;
       }
       const sess = localStorage.getItem('kmc_session');
       if (sess) {
         const parsed = JSON.parse(sess);
-        if (parsed.userId || parsed.id) resolvedId = parsed.userId || parsed.id;
+        if (parsed.userId) {
+          ids.add(String(parsed.userId));
+          resolvedId = parsed.userId;
+        }
+        if (parsed.id) {
+          ids.add(String(parsed.id));
+          if (!resolvedId) resolvedId = parsed.id;
+        }
+        if (parsed.email && !resolvedEmail) resolvedEmail = parsed.email;
       }
     } catch {}
 
-    if (resolvedId) {
-      setCurrentUserId(resolvedId);
-    }
+    if (resolvedId) setCurrentUserId(resolvedId);
+    if (resolvedEmail) setCurrentUserEmail(resolvedEmail);
+    setCurrentUserIds(Array.from(ids));
 
     fetch('/api/auth/me')
       .then(res => res.json())
       .then(data => {
         if (data.user?.id) {
           setCurrentUserId(data.user.id);
+          setCurrentUserIds(prev => Array.from(new Set([...prev, String(data.user.id)])));
+        }
+        if (data.user?.email) {
+          setCurrentUserEmail(data.user.email);
         }
       })
       .catch(() => {});
@@ -144,7 +164,11 @@ export function GlobalCallManager() {
           }
         } catch {}
 
-        const queryUrl = `/api/call?action=check_incoming&userId=${encodeURIComponent(currentUserId || '')}&email=${encodeURIComponent(userEmail)}&name=${encodeURIComponent(userName)}`;
+        const extraIds = Array.from(new Set([
+          ...(currentUserIds || []),
+          currentUserId || '',
+        ].filter(Boolean)));
+        const queryUrl = `/api/call?action=check_incoming&userId=${encodeURIComponent(currentUserId || '')}&email=${encodeURIComponent(userEmail || currentUserEmail)}&ids=${encodeURIComponent(extraIds.join(','))}`;
         const res = await fetch(queryUrl);
         if (!res.ok) return;
         const data = await res.json();
@@ -183,7 +207,7 @@ export function GlobalCallManager() {
     return () => {
       clearInterval(interval);
     };
-  }, [currentUserId, pathname, incomingCall, activeCallParams]);
+  }, [currentUserId, currentUserIds, currentUserEmail, pathname, incomingCall, activeCallParams]);
 
   // Ringing timer
   useEffect(() => {
