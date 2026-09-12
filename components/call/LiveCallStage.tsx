@@ -528,8 +528,16 @@ export function LiveCallStage({
           offerToReceiveAudio: true,
           offerToReceiveVideo: true
         });
-        const optimizedSdp = optimizeSdpForNetwork(offer.sdp || '');
-        await pc.setLocalDescription({ type: offer.type, sdp: optimizedSdp });
+        let localOfferSdp = offer.sdp || '';
+        try {
+          const optimized = optimizeSdpForNetwork(offer.sdp || '');
+          await pc.setLocalDescription({ type: offer.type, sdp: optimized });
+          localOfferSdp = optimized;
+        } catch (sdpErr) {
+          console.warn('Optimized offer SDP fallback to raw SDP:', sdpErr);
+          await pc.setLocalDescription({ type: offer.type, sdp: offer.sdp });
+          localOfferSdp = offer.sdp || '';
+        }
 
         await fetch('/api/call', {
           method: 'POST',
@@ -538,8 +546,8 @@ export function LiveCallStage({
             action: 'offer',
             roomId: canonicalRoom,
             peerId: currentPeerId,
-            offer: { type: offer.type, sdp: optimizedSdp },
-            sdp: { type: offer.type, sdp: optimizedSdp }
+            offer: { type: offer.type, sdp: localOfferSdp },
+            sdp: { type: offer.type, sdp: localOfferSdp }
           })
         });
       } else {
@@ -596,8 +604,16 @@ export function LiveCallStage({
               remoteDescriptionSetRef.current = true;
 
               const answer = await pc.createAnswer();
-              const optimizedSdp = optimizeSdpForNetwork(answer.sdp || '');
-              await pc.setLocalDescription({ type: answer.type, sdp: optimizedSdp });
+              let localAnswerSdp = answer.sdp || '';
+              try {
+                const optimized = optimizeSdpForNetwork(answer.sdp || '');
+                await pc.setLocalDescription({ type: answer.type, sdp: optimized });
+                localAnswerSdp = optimized;
+              } catch (ansErr) {
+                console.warn('Optimized answer SDP fallback to raw SDP:', ansErr);
+                await pc.setLocalDescription({ type: answer.type, sdp: answer.sdp });
+                localAnswerSdp = answer.sdp || '';
+              }
 
               await fetch('/api/call', {
                 method: 'POST',
@@ -606,8 +622,8 @@ export function LiveCallStage({
                   action: 'answer',
                   roomId: canonicalRoom,
                   peerId: currentPeerId,
-                  answer: { type: answer.type, sdp: optimizedSdp },
-                  sdp: { type: answer.type, sdp: optimizedSdp }
+                  answer: { type: answer.type, sdp: localAnswerSdp },
+                  sdp: { type: answer.type, sdp: localAnswerSdp }
                 })
               });
 
@@ -625,7 +641,9 @@ export function LiveCallStage({
               setConnectionStatus('Connected');
               setPartnerJoined(true);
               setCallConnected(true);
-            } catch (e) {}
+            } catch (e) {
+              console.error('[WebRTC] Callee negotiation error:', e);
+            }
           }
 
           if (peerRoleRef.current === 'caller' && pollData.answer && !pc.currentRemoteDescription) {
@@ -650,7 +668,9 @@ export function LiveCallStage({
                 stopRingbackRef.current();
                 stopRingbackRef.current = null;
               }
-            } catch (e) {}
+            } catch (e) {
+              console.error('[WebRTC] Caller remote answer error:', e);
+            }
           }
 
           if (pollData.candidates && pollData.candidates.length > 0) {

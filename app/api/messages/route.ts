@@ -317,7 +317,55 @@ export async function POST(req: Request) {
     // 0. Mark thread as read action
     if (action === 'mark_read') {
       if (threadId) {
+        // 1. Update in-memory / file stored messages
         markThreadAsRead(threadId, currentUserId);
+
+        // 2. Update Prisma database records
+        try {
+          // A. Direct conversationId match
+          await prisma.message.updateMany({
+            where: {
+              conversationId: threadId,
+              readAt: null
+            },
+            data: {
+              readAt: new Date()
+            }
+          });
+
+          // B. Also match by conversation associations or canonical thread IDs
+          const dbConvs = await prisma.conversation.findMany({
+            where: {
+              OR: [
+                { id: threadId },
+                { user1Id: threadId },
+                { user2Id: threadId },
+                ...(threadId.includes('__') ? (() => {
+                  const parts = threadId.replace(/^th_/, '').split('__');
+                  return [
+                    { user1Id: parts[0], user2Id: parts[1] },
+                    { user1Id: parts[1], user2Id: parts[0] }
+                  ];
+                })() : [])
+              ]
+            },
+            select: { id: true }
+          });
+
+          for (const conv of dbConvs) {
+            await prisma.message.updateMany({
+              where: {
+                conversationId: conv.id,
+                readAt: null
+              },
+              data: {
+                readAt: new Date()
+              }
+            });
+          }
+        } catch (dbErr) {
+          console.warn('Prisma mark_read error:', dbErr);
+        }
       }
       return NextResponse.json({ success: true });
     }

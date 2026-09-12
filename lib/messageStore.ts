@@ -565,22 +565,25 @@ export function postMessageToThread(
 export function markThreadAsRead(threadId: string, currentUserId: string = 'user-me'): void {
   if (!threadId) return;
   const canonicalId = getCanonicalThreadId(currentUserId, threadId);
-  const conv = storedConversations.find(c => 
+  const matching = storedConversations.filter(c => 
     c.id === threadId || 
     c.id === canonicalId ||
     c.id.includes(threadId) ||
+    threadId.includes(c.id) ||
     c.user1Id === threadId ||
     c.user2Id === threadId ||
     (c.participants && threadId in c.participants)
   );
-  if (!conv) return;
+  if (matching.length === 0) return;
 
   let changed = false;
-  conv.messages.forEach(m => {
-    if (m.senderId !== currentUserId && !m.read) {
-      m.read = true;
-      changed = true;
-    }
+  matching.forEach(conv => {
+    conv.messages.forEach(m => {
+      if (!m.read) {
+        m.read = true;
+        changed = true;
+      }
+    });
   });
 
   if (changed) {

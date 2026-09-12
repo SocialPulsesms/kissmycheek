@@ -585,9 +585,10 @@ function MessagesContent() {
               const isActive = currentActive && (incomingThread.id === currentActive || incomingThread.id.includes(currentActive));
 
               if (!existingThread) {
+                const hasUnread = (incomingThread.messages || []).some(m => !isMessageMe(m) && !m.read);
                 threadMap.set(incomingThread.id, {
                   ...incomingThread,
-                  unreadCount: isActive ? 0 : incomingThread.unreadCount
+                  unreadCount: isActive ? 0 : (hasUnread ? incomingThread.unreadCount : 0)
                 });
               } else {
                 const msgMap = new Map<string, ChatMessage>();
@@ -606,12 +607,14 @@ function MessagesContent() {
                     const reactions = (incMsg.reactions && incMsg.reactions.length > 0)
                       ? incMsg.reactions
                       : (existingMsg.reactions || []);
+                    // If message was already read locally or currently active, it remains read
+                    const isRead = isActive || Boolean(existingMsg.read) || Boolean(incMsg.read);
                     msgMap.set(existingKey, {
                       ...existingMsg,
                       ...incMsg,
                       id: existingMsg.id, // Keep stable key to prevent re-render flipping
                       reactions,
-                      read: isActive ? true : incMsg.read
+                      read: isRead
                     });
                   } else {
                     msgMap.set(incMsg.id, {
@@ -621,6 +624,11 @@ function MessagesContent() {
                   }
                 });
 
+                const allMsgs = Array.from(msgMap.values());
+                // Only count unread if there are genuinely unread messages from partner
+                const hasUnreadFromPartner = allMsgs.some(m => !isMessageMe(m) && !m.read);
+                const computedUnread = isActive ? 0 : (hasUnreadFromPartner ? incomingThread.unreadCount : 0);
+
                 threadMap.set(incomingThread.id, {
                   ...incomingThread,
                   participant: {
@@ -628,8 +636,8 @@ function MessagesContent() {
                     ...incomingThread.participant,
                     photos: (incomingThread.participant.photos?.length ? incomingThread.participant.photos : existingThread.participant.photos) || []
                   },
-                  unreadCount: isActive ? 0 : incomingThread.unreadCount,
-                  messages: Array.from(msgMap.values())
+                  unreadCount: computedUnread,
+                  messages: allMsgs
                 });
               }
             });
@@ -657,21 +665,31 @@ function MessagesContent() {
     setActiveConvId(convId);
     activeConvIdRef.current = convId;
 
-    // Clean browser URL search so recipientParam does not linger or trigger flipping
-    if (typeof window !== 'undefined' && window.location.search) {
-      window.history.replaceState(null, '', '/messages');
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem('kmc_active_conv_id', convId);
+      } catch {}
+      if (window.location.search) {
+        window.history.replaceState(null, '', '/messages');
+      }
     }
 
-    setConversations(prev => prev.map(c => {
-      if (c.id === convId || c.id.includes(convId)) {
-        return {
-          ...c,
-          unreadCount: 0,
-          messages: c.messages.map(m => (!isMessageMe(m) ? { ...m, read: true } : m))
-        };
-      }
-      return c;
-    }));
+    setConversations(prev => {
+      const updated = prev.map(c => {
+        if (c.id === convId || c.id.includes(convId) || convId.includes(c.id)) {
+          return {
+            ...c,
+            unreadCount: 0,
+            messages: c.messages.map(m => (!isMessageMe(m) ? { ...m, read: true } : m))
+          };
+        }
+        return c;
+      });
+      try {
+        localStorage.setItem('kmc_persistent_chat_v2', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
 
     // Dispatch mark_read to backend
     fetch('/api/messages', {
@@ -683,6 +701,44 @@ function MessagesContent() {
         senderId: currentUserId
       })
     }).catch(() => {});
+  };
+
+  const handleCloseActiveConversation = () => {
+    const closingId = activeConvId || activeConvIdRef.current;
+    if (closingId) {
+      setConversations(prev => {
+        const updated = prev.map(c => {
+          if (c.id === closingId || c.id.includes(closingId) || closingId.includes(c.id)) {
+            return {
+              ...c,
+              unreadCount: 0,
+              messages: c.messages.map(m => (!isMessageMe(m) ? { ...m, read: true } : m))
+            };
+          }
+          return c;
+        });
+        try {
+          localStorage.setItem('kmc_persistent_chat_v2', JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+
+      fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'mark_read',
+          threadId: closingId,
+          senderId: currentUserId
+        })
+      }).catch(() => {});
+    }
+
+    setActiveConvId('');
+    activeConvIdRef.current = '';
+    try {
+      sessionStorage.removeItem('kmc_active_conv_id');
+    } catch {}
   };
 
   useEffect(() => {
@@ -1737,7 +1793,7 @@ function MessagesContent() {
                 <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
                   <button
                     type="button"
-                    onClick={() => setActiveConvId('')}
+                    onClick={handleCloseActiveConversation}
                     className="lg:hidden p-1.5 rounded-full bg-white/5 hover:bg-white/10 text-white/80 transition-colors shrink-0"
                     title="Back to conversations"
                   >
