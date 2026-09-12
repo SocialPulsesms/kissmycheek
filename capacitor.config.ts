@@ -4,6 +4,7 @@ const config: CapacitorConfig = {
   appId: 'com.kissmycheek.app',
   appName: 'Kiss My Cheek',
   webDir: 'public',
+  backgroundColor: '#050507',
   server: {
     // Production live server endpoint for mobile clients (override with CAP_SERVER_URL for dev)
     url: process.env.CAP_SERVER_URL || 'https://kissmycheek.org',
@@ -19,10 +20,12 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: true,
-    captureInput: true
+    captureInput: true,
+    backgroundColor: '#050507'
   },
   ios: {
-    allowsLinkPreview: false
+    allowsLinkPreview: false,
+    backgroundColor: '#050507'
   }
 };
 
