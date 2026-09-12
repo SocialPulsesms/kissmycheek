@@ -33,6 +33,12 @@ public class MainActivity extends BridgeActivity {
         setupModernBackHandler();
     }
 
+    @Override
+    protected void load() {
+        super.load();
+        setupWebViewMediaSettings();
+    }
+
     private void setupWebViewMediaSettings() {
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().post(() -> {
@@ -97,6 +103,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
+        setupWebViewMediaSettings();
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().setBackgroundColor(android.graphics.Color.parseColor("#050507"));
             getBridge().getWebView().resumeTimers();

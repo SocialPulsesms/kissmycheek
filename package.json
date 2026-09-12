@@ -22,6 +22,7 @@
     "@capacitor/core": "^8.5.1",
     "@capacitor/ios": "^8.5.1",
     "@daily-co/daily-js": "^0.92.2",
+    "@metered-ca/realtime": "^1.2.0",
     "@neon/config": "^1.3.2",
     "@neon/env": "^1.2.3",
     "@prisma/adapter-pg": "^7.9.1",

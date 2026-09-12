@@ -3,16 +3,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
+  Mic, 
+  MicOff, 
+  Video, 
+  VideoOff, 
   PhoneOff, 
+  RefreshCw, 
   Crown, 
   Gift, 
-  ShieldCheck
+  ShieldCheck, 
+  SlidersHorizontal,
+  Volume2,
+  VolumeX,
+  Camera
 } from 'lucide-react';
 import { MemberProfile } from '@/lib/mockData';
 import { CreditsAndGiftingModal } from '@/components/ui/CreditsAndGiftingModal';
 import { BespokeGift } from '@/lib/creditsStore';
 import { getCanonicalRoomId } from '@/lib/callRoomId';
 import { callRingtone } from '@/lib/callRingtone';
+import { 
+  DEFAULT_RTC_CONFIGURATION, 
+  optimizeSdpForNetwork, 
+  KMC_LUXE_FILTERS, 
+  FilterKey, 
+  applyKmcSenderParameters 
+} from '@/lib/webrtcIceConfig';
 
 export interface LiveCallStageProps {
   partnerId: string;
@@ -37,10 +53,18 @@ export function LiveCallStage({
   role: initialRole,
   onEndCall
 }: LiveCallStageProps) {
-  const [callMode] = useState<'voice' | 'video'>(initialMode);
+  const [callMode, setCallMode] = useState<'voice' | 'video'>(initialMode);
+  const [micMuted, setMicMuted] = useState(false);
+  const [cameraOff, setCameraOff] = useState(initialMode === 'voice');
+  const [speakerMuted, setSpeakerMuted] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('user');
   const [secondsElapsed, setSecondsElapsed] = useState(0);
-  const [roomUrl, setRoomUrl] = useState<string>('');
-  const [isRoomLoading, setIsRoomLoading] = useState(true);
+  const [callConnected, setCallConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<string>(
+    initialRole === 'callee' ? 'Connecting secure line...' : 'Calling exclusive member...'
+  );
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('luxe');
+  const [showFilters, setShowFilters] = useState(false);
 
   // Floating reactions & animations
   const [floatingReactions, setFloatingReactions] = useState<Array<{ id: string; emoji: string; x: number }>>([]);
@@ -52,7 +76,24 @@ export function LiveCallStage({
   const [modalTab, setModalTab] = useState<'gifting' | 'topup' | 'elite'>('gifting');
   const [activeGiftEffect, setActiveGiftEffect] = useState<{ gift: BespokeGift; reaction: string } | null>(null);
 
-  // Synchronous session initialization
+  // Media & WebRTC Refs
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const pendingCandidatesRef = useRef<any[]>([]);
+
+  // Call management state
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
+  const [partnerCameraOff, setPartnerCameraOff] = useState(false);
+  const [partnerMicMuted, setPartnerMicMuted] = useState(false);
+  const [mediaPermissionError, setMediaPermissionError] = useState<string | null>(null);
+  const [isMediaStarting, setIsMediaStarting] = useState(false);
+
+  // Current session resolution
   const getInitialUserId = () => {
     if (typeof window === 'undefined') return 'caller';
     try {
@@ -113,9 +154,14 @@ export function LiveCallStage({
 
   const stopRingbackRef = useRef<(() => void) | null>(null);
   const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const candidateBatchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const candidateQueueRef = useRef<any[]>([]);
   const endedRef = useRef(false);
   const secondsElapsedRef = useRef(0);
   const roomIdRef = useRef<string>('');
+  const peerIdRef = useRef<string>('');
+  const peerRoleRef = useRef<'caller' | 'callee'>(initialRole === 'callee' ? 'callee' : 'caller');
+  const lastEventTimestampRef = useRef<number>(0);
 
   // Fallback photo lookup from directory
   useEffect(() => {
@@ -139,7 +185,7 @@ export function LiveCallStage({
     }
   }, [partnerId, partnerName]);
 
-  // Duration Timer
+  // Duration Timer (Runs when call is connected)
   useEffect(() => {
     const timer = setInterval(() => {
       setSecondsElapsed(prev => {
@@ -157,7 +203,165 @@ export function LiveCallStage({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Main Call Initialization via Metered Video API
+  // Robust, Progressive In-App Local Camera & Microphone Acquisition
+  const acquireMediaStream = async (targetFacing: 'user' | 'environment' = facingMode): Promise<MediaStream | null> => {
+    setIsMediaStarting(true);
+    setMediaPermissionError(null);
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setIsMediaStarting(false);
+      setMediaPermissionError('Camera API not available on this device');
+      return null;
+    }
+
+    let stream: MediaStream | null = null;
+
+    // 1. Voice Mode
+    if (callMode === 'voice') {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false
+        });
+      } catch {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        } catch (e) {
+          console.warn('Voice acquisition fallback failed:', e);
+        }
+      }
+    } else {
+      // 2. Video Mode: Progressive Fallback (HD -> Standard -> Basic -> Audio-only)
+      const attempts = [
+        {
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: { facingMode: { ideal: targetFacing }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        },
+        {
+          audio: true,
+          video: { facingMode: { ideal: targetFacing } }
+        },
+        {
+          audio: true,
+          video: true
+        }
+      ];
+
+      for (const constraints of attempts) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          if (stream) break;
+        } catch (err: any) {
+          console.warn('Video constraints attempt:', err?.name || err);
+          if (err?.name === 'NotAllowedError') break;
+        }
+      }
+
+      // If combined video+audio was denied or failed, fallback to separate attempts
+      if (!stream) {
+        try {
+          const audioPart = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream = audioPart;
+        } catch (e) {
+          console.warn('Audio fallback error:', e);
+        }
+
+        try {
+          const videoPart = await navigator.mediaDevices.getUserMedia({ video: true });
+          if (videoPart) {
+            if (stream) {
+              videoPart.getVideoTracks().forEach(t => stream!.addTrack(t));
+            } else {
+              stream = videoPart;
+            }
+          }
+        } catch (e) {
+          console.warn('Video fallback error:', e);
+        }
+      }
+    }
+
+    setIsMediaStarting(false);
+
+    if (stream) {
+      localStreamRef.current = stream;
+      setLocalStream(stream);
+
+      // Attach stream to local self-view
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.play().catch(() => {});
+      }
+
+      // Connect or replace tracks on existing RTCPeerConnection
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        const senders = pc.getSenders();
+        stream.getTracks().forEach(track => {
+          const matchingSender = senders.find(s => s.track?.kind === track.kind) || senders.find(s => !s.track);
+          if (matchingSender) {
+            matchingSender.replaceTrack(track).catch(() => {});
+          } else {
+            try {
+              pc.addTrack(track, stream!);
+            } catch {}
+          }
+        });
+        applyKmcSenderParameters(pc, 'high');
+      }
+
+      return stream;
+    } else {
+      setMediaPermissionError('Please allow camera & microphone access to connect');
+      return null;
+    }
+  };
+
+  // Dispatch signaling events to partner peer
+  const sendSignalingEvent = async (type: string, data: any) => {
+    const activeRoom = roomIdRef.current;
+    const activePeer = peerIdRef.current;
+    if (!activeRoom || !activePeer) return;
+
+    fetch('/api/call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'send_event',
+        roomId: activeRoom,
+        peerId: activePeer,
+        type,
+        data
+      })
+    }).catch(() => {});
+  };
+
+  // Queue ICE candidates for efficient batched POST
+  const queueIceCandidate = (candidate: any) => {
+    candidateQueueRef.current.push(candidate);
+    if (!candidateBatchTimerRef.current) {
+      candidateBatchTimerRef.current = setTimeout(() => {
+        candidateBatchTimerRef.current = null;
+        const batch = [...candidateQueueRef.current];
+        candidateQueueRef.current = [];
+        if (batch.length === 0) return;
+
+        fetch('/api/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'send_ice',
+            roomId: roomIdRef.current,
+            peerId: peerIdRef.current,
+            role: peerRoleRef.current,
+            candidates: batch
+          })
+        }).catch(() => {});
+      }, 150);
+    }
+  };
+
+  // Primary WebRTC Connection Pipeline
   useEffect(() => {
     endedRef.current = false;
     const canonicalRoom = (initialRoomId || getCanonicalRoomId(currentUserId || 'caller', partnerId))
@@ -167,13 +371,32 @@ export function LiveCallStage({
 
     roomIdRef.current = canonicalRoom;
 
-    // 1. If Callee: silence all incoming ringtones immediately
+    let currentPeer = '';
+    try {
+      const stored = sessionStorage.getItem(`kmc_peer_${canonicalRoom}`);
+      if (stored) currentPeer = stored;
+      else {
+        currentPeer = `peer-${Math.random().toString(36).substring(2, 9)}`;
+        sessionStorage.setItem(`kmc_peer_${canonicalRoom}`, currentPeer);
+      }
+    } catch {
+      currentPeer = `peer-${Math.random().toString(36).substring(2, 9)}`;
+    }
+    peerIdRef.current = currentPeer;
+
+    remoteStreamRef.current = new MediaStream();
+
+    // 1. Audio tone management
     if (initialRole === 'callee') {
       callRingtone.stopAll();
+      setConnectionStatus('Connecting secure date...');
+      peerRoleRef.current = 'callee';
     } else {
-      // 2. If Caller: start luxury outgoing ringback tone and initiate room invite
+      peerRoleRef.current = 'caller';
       stopRingbackRef.current = callRingtone.startOutgoingRingback();
+      setConnectionStatus('Calling member...');
 
+      // Notify callee
       fetch('/api/call', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -191,65 +414,297 @@ export function LiveCallStage({
       }).catch(() => {});
     }
 
-    // 3. Provision / Join Metered Cloud Room API
-    fetch('/api/metered/room', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roomId: canonicalRoom })
-    })
-      .then(res => res.json())
-      .then(data => {
-        const url = data.url || `https://kissmycheek.metered.live/${canonicalRoom}`;
-        const autoJoinUrl = `${url}?name=${encodeURIComponent(currentUserName)}&autoJoin=true&video=${callMode === 'video'}&audio=true`;
-        setRoomUrl(autoJoinUrl);
-        setIsRoomLoading(false);
+    // 2. Setup RTCPeerConnection with dynamic Metered TURN credentials
+    let isDisposed = false;
 
-        // Stop ringback tone as soon as room is active
+    const setupPeerConnection = async () => {
+      let rtcConfig: RTCConfiguration = DEFAULT_RTC_CONFIGURATION;
+      try {
+        const iceRes = await fetch('/api/ice-servers');
+        if (iceRes.ok) {
+          const iceData = await iceRes.json();
+          if (Array.isArray(iceData?.iceServers) && iceData.iceServers.length > 0) {
+            rtcConfig = { ...DEFAULT_RTC_CONFIGURATION, iceServers: iceData.iceServers };
+          }
+        }
+      } catch {}
+
+      if (isDisposed) return;
+
+      const pc = new RTCPeerConnection(rtcConfig);
+      peerConnectionRef.current = pc;
+
+      // Allocate transceivers so SDP negotiation generates complete audio & video m-lines immediately
+      try {
+        if (pc.getTransceivers().length === 0) {
+          pc.addTransceiver('audio', { direction: 'sendrecv' });
+          pc.addTransceiver('video', { direction: 'sendrecv' });
+        }
+      } catch {}
+
+      // Handle local ICE candidates
+      pc.onicecandidate = (e) => {
+        if (e.candidate) {
+          queueIceCandidate(e.candidate.toJSON());
+        }
+      };
+
+      // Handle incoming remote media tracks
+      pc.ontrack = (e) => {
+        if (e.streams && e.streams[0]) {
+          const remoteStr = e.streams[0];
+          remoteStreamRef.current = remoteStr;
+
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = remoteStr;
+            remoteVideoRef.current.play().catch(() => {});
+          }
+          if (remoteAudioRef.current) {
+            remoteAudioRef.current.srcObject = remoteStr;
+            remoteAudioRef.current.play().catch(() => {});
+          }
+
+          const hasVid = remoteStr.getVideoTracks().length > 0;
+          setHasRemoteVideo(hasVid);
+        }
+
+        // Once remote media is received, stop all ringtones & mark connected
         callRingtone.stopAll();
         if (stopRingbackRef.current) {
           stopRingbackRef.current();
           stopRingbackRef.current = null;
         }
-      })
-      .catch(() => {
-        const fallbackUrl = `https://kissmycheek.metered.live/${canonicalRoom}?name=${encodeURIComponent(currentUserName)}&autoJoin=true&video=${callMode === 'video'}&audio=true`;
-        setRoomUrl(fallbackUrl);
-        setIsRoomLoading(false);
+        setCallConnected(true);
+        setConnectionStatus('Connected');
+      };
 
-        callRingtone.stopAll();
-        if (stopRingbackRef.current) {
-          stopRingbackRef.current();
-          stopRingbackRef.current = null;
+      pc.onconnectionstatechange = () => {
+        const state = pc.connectionState;
+        if (state === 'connected') {
+          callRingtone.stopAll();
+          if (stopRingbackRef.current) {
+            stopRingbackRef.current();
+            stopRingbackRef.current = null;
+          }
+          setCallConnected(true);
+          setConnectionStatus('Connected');
+          applyKmcSenderParameters(pc, 'high');
+        } else if (state === 'disconnected' || state === 'failed') {
+          setConnectionStatus('Reconnecting...');
+        }
+      };
+
+      // 3. Acquire Local Camera & Mic
+      acquireMediaStream('user').then(stream => {
+        if (stream && peerConnectionRef.current) {
+          stream.getTracks().forEach(track => {
+            try {
+              const senders = peerConnectionRef.current?.getSenders() || [];
+              const sender = senders.find(s => s.track?.kind === track.kind) || senders.find(s => !s.track);
+              if (sender) {
+                sender.replaceTrack(track).catch(() => {});
+              } else {
+                peerConnectionRef.current?.addTrack(track, stream);
+              }
+            } catch {}
+          });
         }
       });
 
-    // 4. Polling for remote call state (ended / declined)
-    pollTimerRef.current = setInterval(async () => {
+      // 4. Join room on signaling server
       try {
-        const pollRes = await fetch(`/api/call?roomId=${encodeURIComponent(canonicalRoom)}`);
-        if (!pollRes.ok) return;
-        const pollData = await pollRes.json();
+        const joinRes = await fetch('/api/call', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'join_room',
+            roomId: canonicalRoom,
+            peerId: currentPeer,
+            role: peerRoleRef.current,
+            userName: currentUserName,
+            userPhoto: currentUserPhoto
+          })
+        });
 
-        const remoteEnded =
-          pollData.inviteStatus === 'DECLINED' ||
-          pollData.inviteStatus === 'CANCELLED' ||
-          pollData.inviteStatus === 'ENDED' ||
-          pollData.status === 'ENDED' ||
-          pollData.roomStatus === 'cancelled';
+        const joinData = await joinRes.json();
+        const effectiveRole = joinData.role || peerRoleRef.current;
+        peerRoleRef.current = effectiveRole;
 
-        if (remoteEnded) {
-          handleEndCall({ remote: true });
+        if (effectiveRole === 'caller') {
+          // Caller creates SDP offer
+          const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+          const optimizedOffer = optimizeSdpForNetwork(offer.sdp || '');
+          await pc.setLocalDescription({ type: offer.type, sdp: optimizedOffer });
+
+          await fetch('/api/call', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'send_offer',
+              roomId: canonicalRoom,
+              peerId: currentPeer,
+              sdp: { type: offer.type, sdp: optimizedOffer }
+            })
+          });
+        } else {
+          // Callee checks if caller's offer is already available
+          if (joinData.offer && !pc.currentRemoteDescription) {
+            await pc.setRemoteDescription(new RTCSessionDescription(joinData.offer));
+            const answer = await pc.createAnswer();
+            const optimizedAnswer = optimizeSdpForNetwork(answer.sdp || '');
+            await pc.setLocalDescription({ type: answer.type, sdp: optimizedAnswer });
+
+            await fetch('/api/call', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'send_answer',
+                roomId: canonicalRoom,
+                peerId: currentPeer,
+                sdp: { type: answer.type, sdp: optimizedAnswer }
+              })
+            });
+
+            // Process any pending queued candidates
+            for (const cand of pendingCandidatesRef.current) {
+              try { await pc.addIceCandidate(new RTCIceCandidate(cand)); } catch {}
+            }
+            pendingCandidatesRef.current = [];
+          }
         }
-      } catch {}
-    }, 1500);
+      } catch (err) {
+        console.warn('Signaling init error:', err);
+      }
+
+      // 5. Polling Loop for Remote SDP Answer, Candidates, and End Status
+      let nextCandidateIndex = 0;
+
+      pollTimerRef.current = setInterval(async () => {
+        if (endedRef.current) return;
+
+        try {
+          const pollRes = await fetch(
+            `/api/call?action=poll_signaling&roomId=${encodeURIComponent(canonicalRoom)}&peerId=${encodeURIComponent(currentPeer)}&lastCandidateIndex=${nextCandidateIndex}&lastEventTimestamp=${lastEventTimestampRef.current}`
+          );
+          if (!pollRes.ok) return;
+          const pollData = await pollRes.json();
+
+          // Remote hangup / decline check
+          const remoteEnded =
+            pollData.inviteStatus === 'DECLINED' ||
+            pollData.inviteStatus === 'CANCELLED' ||
+            pollData.inviteStatus === 'ENDED' ||
+            pollData.status === 'ENDED' ||
+            pollData.roomStatus === 'cancelled';
+
+          if (remoteEnded) {
+            handleEndCall({ remote: true });
+            return;
+          }
+
+          // If caller sees callee accepted, stop ringback immediately
+          if (pollData.inviteStatus === 'ACCEPTED' || pollData.answer) {
+            callRingtone.stopAll();
+            if (stopRingbackRef.current) {
+              stopRingbackRef.current();
+              stopRingbackRef.current = null;
+            }
+            setConnectionStatus('Connected');
+            setCallConnected(true);
+          }
+
+          const currentPc = peerConnectionRef.current;
+          if (!currentPc) return;
+
+          // Caller receives Callee's SDP Answer
+          if (peerRoleRef.current === 'caller' && pollData.answer && !currentPc.currentRemoteDescription) {
+            await currentPc.setRemoteDescription(new RTCSessionDescription(pollData.answer));
+
+            for (const cand of pendingCandidatesRef.current) {
+              try { await currentPc.addIceCandidate(new RTCIceCandidate(cand)); } catch {}
+            }
+            pendingCandidatesRef.current = [];
+          }
+
+          // Callee receives Caller's SDP Offer (if not already set)
+          if (peerRoleRef.current === 'callee' && pollData.offer && !currentPc.currentRemoteDescription) {
+            await currentPc.setRemoteDescription(new RTCSessionDescription(pollData.offer));
+            const answer = await currentPc.createAnswer();
+            const optimizedAnswer = optimizeSdpForNetwork(answer.sdp || '');
+            await currentPc.setLocalDescription({ type: answer.type, sdp: optimizedAnswer });
+
+            await fetch('/api/call', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'send_answer',
+                roomId: canonicalRoom,
+                peerId: currentPeer,
+                sdp: { type: answer.type, sdp: optimizedAnswer }
+              })
+            });
+
+            for (const cand of pendingCandidatesRef.current) {
+              try { await currentPc.addIceCandidate(new RTCIceCandidate(cand)); } catch {}
+            }
+            pendingCandidatesRef.current = [];
+          }
+
+          // Ingest remote ICE candidates
+          if (Array.isArray(pollData.candidates) && pollData.candidates.length > 0) {
+            nextCandidateIndex = pollData.nextCandidateIndex || (nextCandidateIndex + pollData.candidates.length);
+            for (const candidate of pollData.candidates) {
+              if (currentPc.remoteDescription && currentPc.remoteDescription.type) {
+                try {
+                  await currentPc.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch {}
+              } else {
+                pendingCandidatesRef.current.push(candidate);
+              }
+            }
+          }
+
+          // Handle Partner Events (Reactions, Camera/Mic Mute toggles)
+          if (Array.isArray(pollData.events)) {
+            for (const ev of pollData.events) {
+              if (ev.timestamp > lastEventTimestampRef.current) {
+                lastEventTimestampRef.current = ev.timestamp;
+                if (ev.type === 'reaction' && ev.data?.emoji) {
+                  spawnReaction(ev.data.emoji);
+                } else if (ev.type === 'media_state') {
+                  if (typeof ev.data?.cameraOff === 'boolean') {
+                    setPartnerCameraOff(ev.data.cameraOff);
+                  }
+                  if (typeof ev.data?.micMuted === 'boolean') {
+                    setPartnerMicMuted(ev.data.micMuted);
+                  }
+                }
+              }
+            }
+          }
+        } catch {}
+      }, 1200);
+    };
+
+    setupPeerConnection();
 
     return () => {
+      isDisposed = true;
       callRingtone.stopAll();
       if (stopRingbackRef.current) {
         stopRingbackRef.current();
         stopRingbackRef.current = null;
       }
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+      if (candidateBatchTimerRef.current) clearTimeout(candidateBatchTimerRef.current);
+
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      if (peerConnectionRef.current) {
+        peerConnectionRef.current.close();
+        peerConnectionRef.current = null;
+      }
     };
   }, [partnerId, initialRoomId]);
 
@@ -266,6 +721,14 @@ export function LiveCallStage({
     callRingtone.playCallEndTone();
 
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(t => t.stop());
+    }
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
 
     const activeRoomId = roomIdRef.current;
     if (activeRoomId && !opts?.remote) {
@@ -287,6 +750,50 @@ export function LiveCallStage({
     }
   };
 
+  // Toggle Microphone Mute
+  const handleToggleMic = () => {
+    const next = !micMuted;
+    setMicMuted(next);
+    if (localStreamRef.current) {
+      localStreamRef.current.getAudioTracks().forEach(track => {
+        track.enabled = !next;
+      });
+    }
+    sendSignalingEvent('media_state', { micMuted: next });
+  };
+
+  // Toggle Camera On / Off
+  const handleToggleCamera = async () => {
+    const next = !cameraOff;
+    setCameraOff(next);
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getVideoTracks().forEach(track => {
+        track.enabled = !next;
+      });
+    }
+
+    // If user previously started voice-only, acquire video stream
+    if (!next && (!localStreamRef.current || localStreamRef.current.getVideoTracks().length === 0)) {
+      await acquireMediaStream(facingMode);
+    }
+
+    sendSignalingEvent('media_state', { cameraOff: next });
+  };
+
+  // Flip Camera (Front <-> Rear)
+  const handleFlipCamera = async () => {
+    const nextFacing = facingMode === 'user' ? 'environment' : 'user';
+    setFacingMode(nextFacing);
+
+    if (localStreamRef.current) {
+      localStreamRef.current.getVideoTracks().forEach(track => track.stop());
+    }
+
+    await acquireMediaStream(nextFacing);
+  };
+
+  // Spawn Floating Reaction
   const spawnReaction = (emoji: string) => {
     const id = `rx_${Date.now()}_${Math.random()}`;
     const x = 15 + Math.random() * 70;
@@ -296,14 +803,28 @@ export function LiveCallStage({
     }, 3000);
   };
 
+  const handleSendReaction = (emoji: string) => {
+    spawnReaction(emoji);
+    sendSignalingEvent('reaction', { emoji });
+  };
+
+  // Double-tap stage for instant Heart Burst
   const handleStageTap = (e: React.MouseEvent | React.TouchEvent) => {
+    // Also unlock mobile audio autoplay if blocked
+    if (remoteAudioRef.current && remoteAudioRef.current.paused) {
+      remoteAudioRef.current.play().catch(() => {});
+    }
+    if (remoteVideoRef.current && remoteVideoRef.current.paused) {
+      remoteVideoRef.current.play().catch(() => {});
+    }
+
     const now = Date.now();
     if (now - lastTapRef.current < 350) {
       const clientX = 'touches' in e && e.touches[0] ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
       const clientY = 'touches' in e && e.touches[0] ? e.touches[0].clientY : (e as React.MouseEvent).clientY;
       const id = `hb_${Date.now()}_${Math.random()}`;
       setHeartBursts(prev => [...prev, { id, x: clientX || window.innerWidth / 2, y: clientY || window.innerHeight / 2 }]);
-      spawnReaction('❤️');
+      handleSendReaction('❤️');
       setTimeout(() => {
         setHeartBursts(prev => prev.filter(h => h.id !== id));
       }, 1400);
@@ -323,6 +844,9 @@ export function LiveCallStage({
       onClick={handleStageTap}
       className="fixed inset-0 z-[999999] h-[100dvh] w-full bg-[#050507] text-[#F4F4F6] relative overflow-hidden select-none font-sans"
     >
+      {/* Hidden Audio Element for Guaranteed High-Fidelity Remote Audio */}
+      <audio ref={remoteAudioRef} autoPlay playsInline muted={speakerMuted} />
+
       {/* FLOATING REAL-TIME REACTIONS PARTICLES */}
       <div className="absolute inset-0 pointer-events-none z-40 overflow-hidden">
         <AnimatePresence>
@@ -388,9 +912,9 @@ export function LiveCallStage({
               <Crown className="w-3.5 h-3.5 text-[#D4AF37] shrink-0" />
             </div>
             <div className="flex items-center gap-2 text-[11px] text-neutral-300">
-              <span className="flex items-center gap-1 text-emerald-400 font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                {formatDuration(secondsElapsed)}
+              <span className={`flex items-center gap-1 font-semibold ${callConnected ? 'text-emerald-400' : 'text-[#D4AF37] animate-pulse'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${callConnected ? 'bg-emerald-400 animate-pulse' : 'bg-[#D4AF37]'}`} />
+                {callConnected ? formatDuration(secondsElapsed) : connectionStatus}
               </span>
               <span>•</span>
               <span className="truncate text-neutral-400">{profile.occupation || 'Exclusive Member'}</span>
@@ -427,26 +951,219 @@ export function LiveCallStage({
         </div>
       </div>
 
-      {/* 2. FULLSCREEN METEDED CLOUD HD VIDEO & VOICE ROOM (Zero Double-Button Clutter) */}
-      <div className="absolute inset-0 z-10 w-full h-full bg-black flex items-center justify-center">
-        {isRoomLoading ? (
-          <div className="flex flex-col items-center justify-center p-6 text-center z-20">
-            <div className="w-14 h-14 rounded-full border-3 border-[#D4AF37] border-t-transparent animate-spin mb-4" />
-            <Crown className="w-7 h-7 text-[#D4AF37] animate-pulse mb-2" />
-            <h3 className="font-serif text-lg text-white font-bold tracking-wider mb-1">Connecting Encrypted Date</h3>
-            <p className="text-xs text-neutral-400">Activating HD Audio & Video Transmission...</p>
+      {/* 2. FULLSCREEN LUXURY VIDEO & VOICE STAGE */}
+      <div className="absolute inset-0 z-10 w-full h-full bg-black flex items-center justify-center overflow-hidden">
+        {/* Remote Partner Video Stream */}
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          muted={speakerMuted}
+          style={{ filter: KMC_LUXE_FILTERS[activeFilter].filter }}
+          className={`w-full h-full object-cover transition-opacity duration-700 ${
+            callConnected && hasRemoteVideo && !partnerCameraOff ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          }`}
+        />
+
+        {/* Fallback Luxury Calling / Ringing / Voice Mode Screen */}
+        {(!callConnected || !hasRemoteVideo || partnerCameraOff) && (
+          <div className="relative w-full h-full flex flex-col items-center justify-center p-6 text-center z-10 bg-[#07070A] overflow-hidden">
+            {/* Ambient Blurred Background Wallpaper */}
+            {profile.photos?.[0] && (
+              <div 
+                className="absolute inset-0 bg-cover bg-center filter blur-3xl opacity-25 scale-125 pointer-events-none"
+                style={{ backgroundImage: `url(${profile.photos[0]})` }}
+              />
+            )}
+
+            {/* Glowing Golden Aura Avatar */}
+            <div className="relative mb-6">
+              <div className="absolute -inset-4 rounded-full bg-[#D4AF37]/20 filter blur-xl animate-pulse" />
+              <div className="w-32 h-32 sm:w-40 sm:h-40 rounded-full border-3 border-[#D4AF37] p-1 bg-black shadow-[0_0_50px_rgba(212,175,55,0.4)] overflow-hidden relative z-10">
+                {profile.photos?.[0] ? (
+                  <img src={profile.photos[0]} alt={profile.name} className="w-full h-full object-cover rounded-full" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center bg-[#111116] font-serif font-bold text-3xl text-[#D4AF37]">
+                    {initials}
+                  </div>
+                )}
+              </div>
+              <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full gold-gradient-bg border-2 border-black flex items-center justify-center shadow-lg z-20">
+                <Crown className="w-4 h-4 text-black" />
+              </div>
+            </div>
+
+            <h3 className="font-serif text-2xl font-bold text-white tracking-wider mb-2 relative z-10">
+              {profile.name}
+            </h3>
+
+            <p className="text-sm text-[#D4AF37] font-semibold tracking-wide mb-1 relative z-10">
+              {callConnected ? (callMode === 'voice' ? 'Exclusive Private Voice Date' : (partnerCameraOff ? 'Partner Camera Paused' : 'Connected')) : connectionStatus}
+            </p>
+
+            <p className="text-xs text-neutral-400 relative z-10">
+              {callConnected ? formatDuration(secondsElapsed) : 'Secured with 256-bit End-to-End Encryption'}
+            </p>
+
+            {/* Tap to Activate Camera & Audio Helper if permission blocked */}
+            {mediaPermissionError && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  acquireMediaStream(facingMode);
+                }}
+                className="mt-6 px-4 py-2.5 rounded-xl gold-gradient-bg text-black font-bold text-xs shadow-[0_0_20px_rgba(212,175,55,0.5)] flex items-center gap-2 hover:scale-105 active:scale-95 transition-all relative z-20"
+              >
+                <Camera className="w-4 h-4" />
+                <span>Tap to Enable Camera & Audio</span>
+              </button>
+            )}
           </div>
-        ) : (
-          <iframe
-            src={roomUrl}
-            allow="camera *; microphone *; display-capture *; autoplay *; clipboard-write *; fullscreen *"
-            className="w-full h-full border-0"
-            title="Kiss My Cheek VIP Encrypted Date"
-          />
         )}
       </div>
 
-      {/* Bespoke 3D Gift Animation Overlay */}
+      {/* 3. SELF-VIEW PICTURE-IN-PICTURE (PiP) */}
+      {!cameraOff && (
+        <div className="absolute bottom-28 right-4 z-30 w-28 sm:w-36 aspect-[3/4] rounded-2xl border-2 border-[#D4AF37]/50 shadow-[0_10px_30px_rgba(0,0,0,0.8)] overflow-hidden bg-black/80 backdrop-blur-md">
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{ filter: KMC_LUXE_FILTERS[activeFilter].filter }}
+            className={`w-full h-full object-cover ${facingMode === 'user' ? '-scale-x-100' : ''}`}
+          />
+          {micMuted && (
+            <div className="absolute bottom-1.5 left-1.5 w-6 h-6 rounded-full bg-rose-600/90 flex items-center justify-center shadow">
+              <MicOff className="w-3.5 h-3.5 text-white" />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 4. BOTTOM FLOATING LUXURY CALL CONTROLS */}
+      <div className="absolute bottom-6 left-4 right-4 z-30 flex items-center justify-between gap-2 max-w-lg mx-auto bg-black/85 backdrop-blur-2xl p-3 sm:p-3.5 rounded-2xl border border-[#D4AF37]/35 shadow-[0_10px_40px_rgba(0,0,0,0.9)]">
+        {/* Toggle Microphone */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleMic();
+          }}
+          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-all ${
+            micMuted 
+              ? 'bg-rose-600 text-white shadow-[0_0_20px_rgba(225,29,72,0.5)]' 
+              : 'bg-white/10 text-white hover:bg-white/20 border border-white/10'
+          }`}
+          title={micMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+        >
+          {micMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+        </button>
+
+        {/* Toggle Camera */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleToggleCamera();
+          }}
+          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-all ${
+            cameraOff 
+              ? 'bg-rose-600 text-white shadow-[0_0_20px_rgba(225,29,72,0.5)]' 
+              : 'bg-white/10 text-white hover:bg-white/20 border border-white/10'
+          }`}
+          title={cameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
+        >
+          {cameraOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
+        </button>
+
+        {/* Flip Camera (Front/Back) */}
+        {!cameraOff && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              handleFlipCamera();
+            }}
+            className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-white/10 text-white hover:bg-white/20 border border-white/10 flex items-center justify-center active:scale-95 transition-all"
+            title="Flip Camera"
+          >
+            <RefreshCw className="w-5 h-5" />
+          </button>
+        )}
+
+        {/* Beauty Filters */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowFilters(!showFilters);
+          }}
+          className={`w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-all ${
+            showFilters 
+              ? 'gold-gradient-bg text-black shadow-[0_0_20px_rgba(212,175,55,0.6)]' 
+              : 'bg-white/10 text-white hover:bg-white/20 border border-white/10'
+          }`}
+          title="Beauty Filters"
+        >
+          <SlidersHorizontal className="w-5 h-5" />
+        </button>
+
+        {/* Floating Quick Reaction Emojis */}
+        <div className="flex items-center gap-1 sm:gap-1.5">
+          {['❤️', '🥂', '👑', '🔥'].map((emoji) => (
+            <button
+              key={emoji}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSendReaction(emoji);
+              }}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white/5 hover:bg-white/15 active:scale-125 transition-all flex items-center justify-center text-lg border border-white/5"
+              title={`Send ${emoji}`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+
+        {/* End Call Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            handleEndCall();
+          }}
+          className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white flex items-center justify-center shadow-[0_0_25px_rgba(225,29,72,0.6)] transition-all border border-rose-400/40"
+          title="End Call"
+        >
+          <PhoneOff className="w-5 h-5" />
+        </button>
+      </div>
+
+      {/* Beauty Filters Drawer */}
+      <AnimatePresence>
+        {showFilters && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="absolute bottom-24 left-4 right-4 z-40 max-w-md mx-auto bg-black/90 backdrop-blur-2xl p-3 rounded-2xl border border-[#D4AF37]/35 shadow-2xl flex items-center justify-around gap-1"
+          >
+            {(Object.keys(KMC_LUXE_FILTERS) as FilterKey[]).map((k) => (
+              <button
+                key={k}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveFilter(k);
+                }}
+                className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${
+                  activeFilter === k ? 'gold-gradient-bg text-black font-bold' : 'text-neutral-300 hover:text-white'
+                }`}
+              >
+                <span className="text-xl">{KMC_LUXE_FILTERS[k].icon}</span>
+                <span className="text-[10px] truncate">{KMC_LUXE_FILTERS[k].name}</span>
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Bespoke 3D Gift Animation Celebration Overlay */}
       <AnimatePresence>
         {activeGiftEffect && (
           <motion.div
@@ -479,7 +1196,7 @@ export function LiveCallStage({
         threadId={partnerId}
         onGiftSent={(gift) => {
           setActiveGiftEffect({ gift, reaction: gift.reactionText || 'Sent with love' });
-          spawnReaction('👑');
+          handleSendReaction('👑');
           setTimeout(() => setActiveGiftEffect(null), 4000);
         }}
       />
