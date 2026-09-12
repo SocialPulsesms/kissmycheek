@@ -211,14 +211,34 @@ export async function GET(req: Request) {
 
           const threads = rawThreads.filter(Boolean) as any[];
 
-          if (threads.length > 0) {
-            return NextResponse.json({
-              success: true,
-              conversations: threads,
-              totalUnread: threads.reduce((acc, curr) => acc + curr.unreadCount, 0),
-              currentUserId
-            });
-          }
+          // Also merge memory/file stored conversations so user never loses active threads
+          const memoryFallback = getConversationsForUser(currentUserId)
+            .filter(t => !userAnyIds.has(t.participant?.id) && t.participant?.id !== currentUserId);
+          
+          const dbCanonicalIds = new Set(threads.map(t => t.id));
+          const dbParticipantIds = new Set(threads.map(t => t.participant?.id));
+
+          memoryFallback.forEach(mem => {
+            if (!dbCanonicalIds.has(mem.id) && !dbParticipantIds.has(mem.participant?.id)) {
+              threads.push(mem);
+            }
+          });
+
+          return NextResponse.json({
+            success: true,
+            conversations: threads.map(t => {
+              if (activeThreadId && (t.id === activeThreadId || t.id.includes(activeThreadId))) {
+                return {
+                  ...t,
+                  unreadCount: 0,
+                  messages: t.messages.map((m: any) => ({ ...m, read: true }))
+                };
+              }
+              return t;
+            }),
+            totalUnread: threads.reduce((acc, curr) => acc + (curr.unreadCount || 0), 0),
+            currentUserId
+          });
         }
       }
     } catch (err) {

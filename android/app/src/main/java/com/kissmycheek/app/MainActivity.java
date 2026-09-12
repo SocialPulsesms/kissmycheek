@@ -12,11 +12,21 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     private static final int PERM_REQUEST_CODE = 200;
     private long lastBackPressTime = 0;
+    private boolean isAppReady = false;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
+        androidx.core.splashscreen.SplashScreen splashScreen = androidx.core.splashscreen.SplashScreen.installSplashScreen(this);
+        // Keep the native luxury crown splash on screen until the web view has loaded its initial frame
+        splashScreen.setKeepOnScreenCondition(() -> !isAppReady);
+
         super.onCreate(savedInstanceState);
+
+        // Allow web view time to load its DOM while the crown emblem remains seamlessly visible
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            isAppReady = true;
+        }, 1200);
+
         checkAudioVideoPermissions();
         setupWebViewMediaSettings();
         setupModernBackHandler();
@@ -31,10 +41,21 @@ public class MainActivity extends BridgeActivity {
                     settings.setJavaScriptEnabled(true);
                     settings.setDomStorageEnabled(true);
                     settings.setDatabaseEnabled(true);
+
+                    // Prevent any white flips / flashes when webview initializes
+                    getBridge().getWebView().setBackgroundColor(android.graphics.Color.parseColor("#050507"));
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             });
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().setBackgroundColor(android.graphics.Color.parseColor("#050507"));
         }
     }
 

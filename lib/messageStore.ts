@@ -62,25 +62,8 @@ export function getCanonicalThreadId(userAId: string, userBId: string): string {
 
 function isGenuineRealThread(t: any): boolean {
   if (!t) return false;
-  const name1 = t.participant?.name || '';
-  const pVals = t.participants ? Object.values(t.participants) : [];
-  const hasMockName = MOCK_NAMES.includes(name1) || pVals.some((p: any) => MOCK_NAMES.includes(p?.name));
-  if (hasMockName) return false;
-
   const threadId = String(t.id || '');
   if (threadId.startsWith('conv-') || threadId.startsWith('mock-')) return false;
-
-  const partId = String(t.participant?.id || t.user2Id || '');
-  if (partId.startsWith('prof-') || partId.startsWith('profile-') || partId.startsWith('usr_patron_') || partId.startsWith('usr_demo_') || partId.startsWith('usr_mock_')) return false;
-
-  if (Array.isArray(t.messages)) {
-    const hasMockSnippet = t.messages.some((m: any) => {
-      const content = String(m?.content || '').toLowerCase();
-      return MOCK_SNIPPETS.some(snip => content.includes(snip.toLowerCase()));
-    });
-    if (hasMockSnippet) return false;
-  }
-
   return true;
 }
 
@@ -245,8 +228,11 @@ export function getConversationsForUser(currentUserId: string = 'user-me'): Conv
     return (
       c.user1Id === cleanUser || 
       c.user2Id === cleanUser || 
-      (c.participants && cleanUser in c.participants) ||
-      c.id.includes(cleanUser)
+      c.user1Id === 'user-me' ||
+      c.user2Id === 'user-me' ||
+      (c.participants && (cleanUser in c.participants || 'user-me' in c.participants)) ||
+      c.id.includes(cleanUser) ||
+      c.id.includes('user-me')
     );
   });
 

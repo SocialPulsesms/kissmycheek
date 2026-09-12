@@ -295,23 +295,8 @@ const sanitizeMessage = (m: any): ChatMessage => {
 
 const isRealConversation = (t: any): boolean => {
   if (!t || !t.participant) return false;
-  const name = t.participant.name || '';
-  if (MOCK_NAMES.includes(name)) return false;
-
   const threadId = String(t.id || '');
   if (threadId.startsWith('conv-') || threadId.startsWith('mock-')) return false;
-
-  const partId = String(t.participant.id || '');
-  if (partId.startsWith('prof-') || partId.startsWith('profile-') || partId.startsWith('usr_patron_') || partId.startsWith('usr_demo_') || partId.startsWith('usr_mock_')) return false;
-
-  if (Array.isArray(t.messages)) {
-    const hasMockSnippet = t.messages.some((m: any) => {
-      const content = String(m?.content || '').toLowerCase();
-      return MOCK_SNIPPETS.some(snip => content.includes(snip.toLowerCase()));
-    });
-    if (hasMockSnippet) return false;
-  }
-
   return true;
 };
 
@@ -393,8 +378,33 @@ function MessagesContent() {
     }).catch(() => {});
   };
 
-  const [conversations, setConversations] = useState<ConversationThread[]>(INITIAL_CONVERSATIONS);
-  const [activeConvId, setActiveConvId] = useState<string>('');
+  const [conversations, setConversations] = useState<ConversationThread[]>(() => {
+    if (typeof window === 'undefined') return INITIAL_CONVERSATIONS;
+    try {
+      const savedThreads = localStorage.getItem('kmc_persistent_chat_v2');
+      if (savedThreads) {
+        const parsed = JSON.parse(savedThreads);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter(isRealConversation).map(t => ({
+            ...t,
+            messages: Array.isArray(t.messages) ? t.messages.map(sanitizeMessage) : []
+          }));
+        }
+      }
+    } catch {}
+    return INITIAL_CONVERSATIONS;
+  });
+
+  const [activeConvId, setActiveConvId] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const savedActiveId = localStorage.getItem('kmc_active_conv_id');
+      if (savedActiveId && !savedActiveId.startsWith('conv-') && !savedActiveId.startsWith('mock-')) {
+        return savedActiveId;
+      }
+    } catch {}
+    return '';
+  });
   const activeConvIdRef = useRef<string>('');
   activeConvIdRef.current = activeConvId;
   const lastProcessedRecipientRef = useRef<string | null>(null);
@@ -404,8 +414,40 @@ function MessagesContent() {
   const [isUserCallLogsOpen, setIsUserCallLogsOpen] = useState(false);
   const [userCallHistory, setUserCallHistory] = useState<CallHistoryItem[]>([]);
   const [isLoadingUserCalls, setIsLoadingUserCalls] = useState(false);
-  const [currentUserId, setCurrentUserId] = useState<string>('');
-  const [currentUserEmail, setCurrentUserEmail] = useState<string>('');
+  
+  const [currentUserId, setCurrentUserId] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const savedProfile = localStorage.getItem('kmc_user_profile');
+      if (savedProfile) {
+        const p = JSON.parse(savedProfile);
+        if (p.id) return p.id;
+      }
+      const savedSession = localStorage.getItem('kmc_session');
+      if (savedSession) {
+        const p = JSON.parse(savedSession);
+        if (p.userId || p.id) return p.userId || p.id;
+      }
+    } catch {}
+    return '';
+  });
+
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const savedProfile = localStorage.getItem('kmc_user_profile');
+      if (savedProfile) {
+        const p = JSON.parse(savedProfile);
+        if (p.email) return p.email;
+      }
+      const savedSession = localStorage.getItem('kmc_session');
+      if (savedSession) {
+        const p = JSON.parse(savedSession);
+        if (p.email) return p.email;
+      }
+    } catch {}
+    return '';
+  });
   const [sidebarTab, setSidebarTab] = useState<'messages' | 'calls'>('messages');
   const [callHistory, setCallHistory] = useState<CallHistoryItem[]>([]);
   const [messageInput, setMessageInput] = useState('');
@@ -525,46 +567,86 @@ function MessagesContent() {
           setCurrentUserId(data.currentUserId);
         }
         if (data.conversations && Array.isArray(data.conversations)) {
-          const realThreads = data.conversations.filter(isRealConversation);
+          const incomingRealThreads = data.conversations.filter(isRealConversation);
           
           setConversations(prev => {
-            return realThreads.map((incomingThread: ConversationThread) => {
-              const existingThread = prev.find(p => p.id === incomingThread.id);
+            const threadMap = new Map<string, ConversationThread>();
+
+            // 1. Preserve ALL current active chats in the chat line permanently
+            prev.forEach(t => {
+              if (t && t.id) threadMap.set(t.id, t);
+            });
+
+            // 2. Intelligently merge incoming threads from backend
+            incomingRealThreads.forEach((incomingThread: ConversationThread) => {
+              if (!incomingThread || !incomingThread.id) return;
+              const existingThread = threadMap.get(incomingThread.id);
               const currentActive = activeConvIdRef.current;
               const isActive = currentActive && (incomingThread.id === currentActive || incomingThread.id.includes(currentActive));
 
-              const mergedMessages = incomingThread.messages.map((rawIncMsg: any) => {
-                const incMsg = sanitizeMessage(rawIncMsg);
-                const existingMsg = existingThread?.messages.find(m => m.id === incMsg.id || (m.content === incMsg.content && m.timestamp === incMsg.timestamp));
-                const reactions = (incMsg.reactions && incMsg.reactions.length > 0)
-                  ? incMsg.reactions
-                  : (existingMsg?.reactions || []);
-                
-                return {
-                  ...incMsg,
-                  reactions,
-                  read: isActive ? true : incMsg.read
-                };
-              });
+              if (!existingThread) {
+                threadMap.set(incomingThread.id, {
+                  ...incomingThread,
+                  unreadCount: isActive ? 0 : incomingThread.unreadCount
+                });
+              } else {
+                const msgMap = new Map<string, ChatMessage>();
+                existingThread.messages.forEach(m => msgMap.set(m.id, m));
 
-              return {
-                ...incomingThread,
-                unreadCount: isActive ? 0 : incomingThread.unreadCount,
-                messages: mergedMessages
-              };
+                incomingThread.messages.forEach((rawIncMsg: any) => {
+                  const incMsg = sanitizeMessage(rawIncMsg);
+                  // Find existing message by id or matching content + timestamp
+                  const existingKey = Array.from(msgMap.keys()).find(k => {
+                    const m = msgMap.get(k);
+                    return m?.id === incMsg.id || (m?.content === incMsg.content && m?.timestamp === incMsg.timestamp);
+                  });
+
+                  if (existingKey) {
+                    const existingMsg = msgMap.get(existingKey)!;
+                    const reactions = (incMsg.reactions && incMsg.reactions.length > 0)
+                      ? incMsg.reactions
+                      : (existingMsg.reactions || []);
+                    msgMap.set(existingKey, {
+                      ...existingMsg,
+                      ...incMsg,
+                      id: existingMsg.id, // Keep stable key to prevent re-render flipping
+                      reactions,
+                      read: isActive ? true : incMsg.read
+                    });
+                  } else {
+                    msgMap.set(incMsg.id, {
+                      ...incMsg,
+                      read: isActive ? true : incMsg.read
+                    });
+                  }
+                });
+
+                threadMap.set(incomingThread.id, {
+                  ...incomingThread,
+                  participant: {
+                    ...existingThread.participant,
+                    ...incomingThread.participant,
+                    photos: (incomingThread.participant.photos?.length ? incomingThread.participant.photos : existingThread.participant.photos) || []
+                  },
+                  unreadCount: isActive ? 0 : incomingThread.unreadCount,
+                  messages: Array.from(msgMap.values())
+                });
+              }
             });
+
+            const mergedList = Array.from(threadMap.values());
+            if (mergedList.length > 0) {
+              try {
+                localStorage.setItem('kmc_persistent_chat_v2', JSON.stringify(mergedList));
+              } catch {}
+            }
+            return mergedList;
           });
 
-          if (realThreads.length > 0) {
-            try {
-              localStorage.setItem('kmc_persistent_chat_v2', JSON.stringify(realThreads));
-            } catch {}
-          }
-
           // Only auto-select first thread if no thread is active AND no recipient query param exists
-          if (!activeConvIdRef.current && !targetActiveId && !recipientParam && realThreads.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 1024) {
-            setActiveConvId(realThreads[0].id);
-            activeConvIdRef.current = realThreads[0].id;
+          if (!activeConvIdRef.current && !targetActiveId && !recipientParam && incomingRealThreads.length > 0 && typeof window !== 'undefined' && window.innerWidth >= 1024) {
+            setActiveConvId(incomingRealThreads[0].id);
+            activeConvIdRef.current = incomingRealThreads[0].id;
           }
         }
       }
@@ -688,7 +770,7 @@ function MessagesContent() {
       fetchConversations();
     }, 3000);
     return () => clearInterval(pollInterval);
-  }, [activeConvId]);
+  }, []);
 
   // 3. Persist real conversations to localStorage whenever updated
   useEffect(() => {
@@ -841,6 +923,15 @@ function MessagesContent() {
     if (!msg) return false;
     if (currentUserId && msg.senderId === currentUserId) return true;
     if (msg.senderId === 'user-me') return true;
+    if (currentUserEmail && (msg.senderId === currentUserEmail || (msg as any).senderEmail === currentUserEmail)) return true;
+    // In 1-on-1 direct conversation, if sender is NOT the active partner, it is sent by the viewer!
+    if (activeConv?.participant?.id && msg.senderId && msg.senderId !== activeConv.participant.id) {
+      return true;
+    }
+    // Optimistic / locally created messages
+    if (msg.id && (msg.id.startsWith('m-opt-') || msg.id.startsWith('m-stk-') || msg.id.startsWith('m-voice-') || msg.id.startsWith('m-img-'))) {
+      return true;
+    }
     return false;
   };
 
@@ -1283,7 +1374,33 @@ function MessagesContent() {
       if (res.ok) {
         const data = await res.json();
         if (data.updatedThread) {
-          setConversations(prev => prev.map(c => c.id === activeConvId ? data.updatedThread : c));
+          setConversations(prev => prev.map(c => {
+            if (c.id === activeConvId || (activeConv && c.id === activeConv.id)) {
+              const existingMsgMap = new Map<string, ChatMessage>();
+              c.messages.forEach(m => existingMsgMap.set(m.id, m));
+
+              (data.updatedThread.messages || []).forEach((srvMsg: ChatMessage) => {
+                if (srvMsg.content === optimisticMsg.content && (srvMsg.senderId === currentUserId || srvMsg.senderId === 'user-me')) {
+                  existingMsgMap.set(optimisticMsg.id, {
+                    ...srvMsg,
+                    id: optimisticMsg.id,
+                    read: true
+                  });
+                } else if (!existingMsgMap.has(srvMsg.id)) {
+                  existingMsgMap.set(srvMsg.id, srvMsg);
+                }
+              });
+
+              return {
+                ...data.updatedThread,
+                id: c.id,
+                messages: Array.from(existingMsgMap.values()),
+                lastMessage: text,
+                lastMessageTime: timeString
+              };
+            }
+            return c;
+          }));
           if (!isScrolledUp) {
             scrollToBottom(true);
           }
