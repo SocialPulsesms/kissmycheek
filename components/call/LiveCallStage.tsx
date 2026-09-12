@@ -1303,18 +1303,18 @@ export function LiveCallStage({
                 }}
                 autoPlay
                 playsInline
-                muted={speakerMuted}
+                muted
                 onPlaying={() => setRemoteVideoPlaying(true)}
                 onLoadedData={() => setRemoteVideoPlaying(true)}
                 onPause={() => setRemoteVideoPlaying(false)}
                 style={{ filter: KMC_LUXE_FILTERS[activeFilter].filter }}
                 className={`w-full h-full object-cover transition-all duration-500 ${
-                  callConnected && hasRemoteVideo && remoteVideoPlaying && !partnerCameraOff ? 'opacity-100' : 'opacity-0 pointer-events-none'
+                  callConnected && hasRemoteVideo && !partnerCameraOff ? 'opacity-100' : 'opacity-0 pointer-events-none'
                 }`}
               />
 
               {/* WhatsApp-Style Calling & Ringing Avatar Screen */}
-              {(!callConnected || !hasRemoteVideo || !remoteVideoPlaying || partnerCameraOff) && (
+              {(!callConnected || !hasRemoteVideo || partnerCameraOff) && (
                 <div className="relative w-full h-full flex flex-col items-center justify-center z-10 bg-[#07070A] overflow-hidden">
                   {/* Blurred Ambient Wallpaper */}
                   {profile.photos?.[0] ? (
