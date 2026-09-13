@@ -36,9 +36,10 @@ import {
   SmilePlus,
   Maximize2,
   Upload,
-  Plus,
-  ArrowLeft
+  ArrowLeft,
+  Plus
 } from 'lucide-react';
+import { startInAppCall } from '@/components/call/GlobalCallManager';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Navigation } from '@/components/ui/Navigation';
@@ -1621,6 +1622,47 @@ function MessagesContent() {
                       {activeConv.participant.occupation || 'Member'} • {activeConv.participant.location || 'London'}
                     </span>
                   </div>
+                </div>
+
+                {/* Voice & Video Call Action Buttons */}
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      startInAppCall({
+                        partnerId: activeConv.participant.id,
+                        partnerName: activeConv.participant.name,
+                        partnerPhoto: getParticipantPhoto(activeConv.participant),
+                        partnerOccupation: activeConv.participant.occupation,
+                        partnerLocation: activeConv.participant.location,
+                        mode: 'voice'
+                      });
+                    }}
+                    className="p-2 sm:px-3 sm:py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/80 hover:text-white transition-all flex items-center gap-1.5 text-xs font-semibold shadow-sm"
+                    title="Start HD Voice Call"
+                  >
+                    <Phone className="w-3.5 h-3.5 text-[#D4AF37]" />
+                    <span className="hidden md:inline text-[11px]">Voice</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      startInAppCall({
+                        partnerId: activeConv.participant.id,
+                        partnerName: activeConv.participant.name,
+                        partnerPhoto: getParticipantPhoto(activeConv.participant),
+                        partnerOccupation: activeConv.participant.occupation,
+                        partnerLocation: activeConv.participant.location,
+                        mode: 'video'
+                      });
+                    }}
+                    className="p-2 sm:px-3.5 sm:py-1.5 rounded-full gold-gradient-bg text-black hover:opacity-95 font-bold transition-all shadow-md flex items-center gap-1.5 text-xs"
+                    title="Start 4K Video Date"
+                  >
+                    <Video className="w-3.5 h-3.5 text-black" />
+                    <span className="hidden md:inline text-[11px]">4K Date</span>
+                  </button>
                 </div>
               </div>
 

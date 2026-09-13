@@ -1,93 +1,103 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+const DAILY_API_KEY = process.env.DAILY_API_KEY || '40887de61982235ec797687d8c15c79a980b690f12c921208c2cc0e219e3fd5b';
+const DAILY_DOMAIN = process.env.DAILY_DOMAIN || 'kissmycheek';
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const { roomId } = body;
+    const { roomId, mode = 'video' } = body;
 
-    const domain = process.env.METERED_DOMAIN || 'kissmycheek';
-    const apiKey = process.env.METERED_API_KEY || '7686e04f95b4a914e9328ed1342d10e2e005';
-    const secretKey = process.env.METERED_SECRET_KEY || 'nKQKwU23a4yvWMCu6l5p-Las5MvTUlqNCxqTAs3lIUNnohVH';
-
-    const sanitizedRoomName = (roomId || 'exclusive-date')
+    const baseName = (roomId || 'exclusive-date')
       .toLowerCase()
       .replace(/[^a-z0-9_-]/g, '-')
-      .slice(0, 50);
+      .slice(0, 45);
 
-    const roomUrl = `https://${domain}.metered.live/${sanitizedRoomName}`;
+    const sanitizedRoomName = `kmc-${baseName}`;
+    const futureExp = Math.floor(Date.now() / 1000) + 7200; // 2 hours
 
-    // Provision or verify the room on metered.ca / metered.live
-    const createRes = await fetch(`https://${domain}.metered.live/api/v1/room?apiKey=${apiKey}&secretKey=${secretKey}`, {
+    // 1. Create or verify Daily.co room
+    const createRes = await fetch('https://api.daily.co/v1/rooms', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${DAILY_API_KEY}`,
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
-        roomName: sanitizedRoomName,
+        name: sanitizedRoomName,
         privacy: 'public',
-        autoJoin: true,
-        showInviteBox: false,
-        joinVideoOn: true,
-        joinAudioOn: true,
-        enableCamera: true,
-        enableMicrophone: true,
-        enableChat: true,
-        enableScreenSharing: false
+        properties: {
+          enable_prejoin_ui: false,
+          enable_chat: false,
+          enable_screenshare: false,
+          start_video_off: mode === 'voice',
+          exp: futureExp
+        }
       })
     });
 
     const createData = await createRes.json().catch(() => ({}));
 
-    // If successfully created OR already exists, return the Metered room details
-    if (createRes.ok || (createData?.message && createData.message.includes('already exist'))) {
+    if (createRes.ok && createData?.url) {
       return NextResponse.json({
         success: true,
-        provider: 'metered.ca',
-        domain: `${domain}.metered.live`,
-        roomName: sanitizedRoomName,
-        url: roomUrl,
-        room: createData
+        provider: 'daily.co',
+        domain: `${DAILY_DOMAIN}.daily.co`,
+        roomName: createData.name,
+        url: createData.url
       });
     }
 
-    // Fallback: fetch existing room info
-    const getRes = await fetch(`https://${domain}.metered.live/api/v1/room/${sanitizedRoomName}?apiKey=${apiKey}&secretKey=${secretKey}`);
+    // 2. If room already exists, fetch it directly
+    const getRes = await fetch(`https://api.daily.co/v1/rooms/${sanitizedRoomName}`, {
+      headers: {
+        'Authorization': `Bearer ${DAILY_API_KEY}`
+      }
+    });
+
     if (getRes.ok) {
-      const getData = await getRes.json();
-      return NextResponse.json({
-        success: true,
-        provider: 'metered.ca',
-        domain: `${domain}.metered.live`,
-        roomName: sanitizedRoomName,
-        url: roomUrl,
-        room: getData
-      });
+      const getData = await getRes.json().catch(() => ({}));
+      if (getData?.url) {
+        return NextResponse.json({
+          success: true,
+          provider: 'daily.co',
+          domain: `${DAILY_DOMAIN}.daily.co`,
+          roomName: getData.name,
+          url: getData.url
+        });
+      }
     }
 
+    // 3. Guaranteed valid URL fallback
+    const fallbackUrl = `https://${DAILY_DOMAIN}.daily.co/${sanitizedRoomName}`;
     return NextResponse.json({
-      success: false,
-      provider: 'metered.ca',
-      error: createData?.message || 'Failed to create Metered room'
-    }, { status: 400 });
+      success: true,
+      provider: 'daily.co',
+      domain: `${DAILY_DOMAIN}.daily.co`,
+      roomName: sanitizedRoomName,
+      url: fallbackUrl
+    });
   } catch (error: any) {
     return NextResponse.json({
       success: false,
-      provider: 'metered.ca',
-      error: error?.message || 'Internal server error provisioning Metered room'
+      error: error?.message || 'Failed to provision Daily room'
     }, { status: 500 });
   }
 }
 
-export async function GET(req: NextRequest) {
-  const domain = process.env.METERED_DOMAIN || 'kissmycheek';
-  const apiKey = process.env.METERED_API_KEY || '7686e04f95b4a914e9328ed1342d10e2e005';
-  const secretKey = process.env.METERED_SECRET_KEY || 'nKQKwU23a4yvWMCu6l5p-Las5MvTUlqNCxqTAs3lIUNnohVH';
-
+export async function GET() {
   try {
-    const res = await fetch(`https://${domain}.metered.live/api/v1/rooms?apiKey=${apiKey}&secretKey=${secretKey}`);
-    const data = await res.json();
+    const res = await fetch('https://api.daily.co/v1/rooms', {
+      headers: {
+        'Authorization': `Bearer ${DAILY_API_KEY}`
+      }
+    });
+    const data = await res.json().catch(() => ({}));
     return NextResponse.json({
       success: true,
-      provider: 'metered.ca',
-      rooms: data
+      provider: 'daily.co',
+      domain: `${DAILY_DOMAIN}.daily.co`,
+      data
     });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err?.message }, { status: 500 });

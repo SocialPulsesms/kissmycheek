@@ -103,7 +103,8 @@ export async function POST(req: Request) {
         calleeId,
         calleeName: calleeName || '',
         calleeEmail: body.calleeEmail || '',
-        callMode
+        callMode,
+        roomUrl: body.roomUrl
       });
 
       return NextResponse.json({ success: true, invite });

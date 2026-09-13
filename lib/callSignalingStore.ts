@@ -53,6 +53,7 @@ export interface ActiveCallInvite {
   status: CallInviteStatus;
   createdAt: number;
   updatedAt: number;
+  roomUrl?: string;
 }
 
 const globalForCallSignaling = globalThis as unknown as {
@@ -549,6 +550,7 @@ export function initiateCallInvite(data: {
   calleeName?: string;
   calleeEmail?: string;
   callMode: 'voice' | 'video';
+  roomUrl?: string;
 }): ActiveCallInvite {
   ensureReady();
   cleanStaleInvites();
@@ -568,6 +570,7 @@ export function initiateCallInvite(data: {
     if (data.calleeName) existingInvite.calleeName = data.calleeName;
     if (data.calleeEmail) existingInvite.calleeEmail = data.calleeEmail;
     if (data.callMode) existingInvite.callMode = data.callMode;
+    if (data.roomUrl) existingInvite.roomUrl = data.roomUrl;
     existingInvite.updatedAt = now;
     schedulePersist();
     return existingInvite;
@@ -605,7 +608,8 @@ export function initiateCallInvite(data: {
     callMode: data.callMode || 'video',
     status: 'RINGING',
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    roomUrl: data.roomUrl
   };
 
   activeCallInvites.set(data.roomId, invite);

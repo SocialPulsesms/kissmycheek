@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Navigation } from '@/components/ui/Navigation';
 import { MemberProfile } from '@/lib/mockData';
+import { startInAppCall } from '@/components/call/GlobalCallManager';
 
 export default function MatchesPage() {
   const [activeTab, setActiveTab] = useState<'likedYou' | 'youLiked' | 'mutual' | 'expiring'>('likedYou');
@@ -252,6 +253,22 @@ export default function MatchesPage() {
                         Chat Now
                       </Button>
                     </Link>
+                    <Button 
+                      variant="glass" 
+                      size="sm"
+                      onClick={() => {
+                        startInAppCall({
+                          partnerId: profile.id,
+                          partnerName: profile.name,
+                          partnerPhoto: profile.photos?.[0] || '',
+                          partnerOccupation: profile.occupation || 'Member',
+                          partnerLocation: profile.location || 'Verified Member',
+                          mode: 'video'
+                        });
+                      }}
+                    >
+                      Date Call
+                    </Button>
                   </div>
                 </div>
               </Card>

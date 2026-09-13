@@ -22,7 +22,8 @@ import {
   Lock,
   LogOut,
   Settings,
-  Camera
+  Camera,
+  Phone
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -33,6 +34,7 @@ import { MemberProfile } from '@/lib/mockData';
 import { CreditsAndGiftingModal } from '@/components/ui/CreditsAndGiftingModal';
 import { performLogout } from '@/lib/authClient';
 import { calculateAge } from '@/lib/dateUtils';
+import { startInAppCall } from '@/components/call/GlobalCallManager';
 
 // Profile Page Component
 export default function ProfilePage({ params }: { params: Promise<{ id: string }> }) {
@@ -592,6 +594,25 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                         Message {profile.name.split(' ')[0]}
                       </Button>
                     </Link>
+
+                    <Button 
+                      variant="outline" 
+                      fullWidth 
+                      icon={<Phone className="w-4 h-4 text-[#D4AF37]" />}
+                      className="flex-1"
+                      onClick={() => {
+                        startInAppCall({
+                          partnerId: profile.id,
+                          partnerName: profile.name,
+                          partnerPhoto: profile.photos?.[0] || '',
+                          partnerOccupation: profile.occupation || 'Member',
+                          partnerLocation: profile.location || 'Verified Member',
+                          mode: 'video'
+                        });
+                      }}
+                    >
+                      Date Call
+                    </Button>
 
                     <Button
                       variant="outline"
