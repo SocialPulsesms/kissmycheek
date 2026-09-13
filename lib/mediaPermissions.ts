@@ -1,10 +1,10 @@
 /**
  * Media Permissions Utility for Kiss My Cheek
- * Triggers native camera and microphone prompts synchronously on user tap
- * and preserves the live stream for instantaneous video rendering (zero lag, zero play icon).
+ * Triggers native camera and microphone permission prompts synchronously on user tap
+ * and immediately releases physical camera hardware locks so WebRTC / Daily can
+ * acquire exclusive access to the mobile Camera HAL without 'Device in use' conflicts.
  */
 
-let cachedLocalStream: MediaStream | null = null;
 let inFlightPermissionPromise: Promise<{
   granted: boolean;
   hasCamera: boolean;
@@ -12,6 +12,8 @@ let inFlightPermissionPromise: Promise<{
   stream: MediaStream | null;
   error?: string;
 }> | null = null;
+
+let cachedLocalStream: MediaStream | null = null;
 
 export function getCachedLocalStream(): MediaStream | null {
   if (cachedLocalStream && cachedLocalStream.active) {
@@ -53,16 +55,6 @@ export async function triggerMediaPermissions(mode: 'voice' | 'video' = 'video')
 
   const needsVideo = mode !== 'voice';
 
-  // Return existing active stream if available
-  const existing = getCachedLocalStream();
-  if (existing) {
-    const hasVid = existing.getVideoTracks().some(t => t.readyState === 'live');
-    const hasAud = existing.getAudioTracks().some(t => t.readyState === 'live');
-    if (!needsVideo || hasVid) {
-      return { granted: true, hasCamera: hasVid, hasAudio: hasAud, stream: existing };
-    }
-  }
-
   inFlightPermissionPromise = (async () => {
     try {
       return await executeMediaRequest(needsVideo);
@@ -81,18 +73,31 @@ async function executeMediaRequest(needsVideo: boolean): Promise<{
   stream: MediaStream | null;
   error?: string;
 }> {
-
   if (needsVideo) {
-    // 1. Mobile-native front camera (avoids restrictive landscape 1280x720 which breaks portrait Android/iOS front cams)
+    // 1. Mobile-native front camera probe
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
         video: { facingMode: 'user' }
       });
-      cachedLocalStream = stream;
-      return { granted: true, hasCamera: true, hasAudio: true, stream };
-    } catch (errFacing) {
+      // CRITICAL FOR MOBILE ANDROID:
+      // Release hardware lock immediately so Daily's WebRTC engine can open the camera without 'Device in use' conflict!
+      stream.getTracks().forEach(t => {
+        try { t.stop(); } catch {}
+      });
+      cachedLocalStream = null;
+      return { granted: true, hasCamera: true, hasAudio: true, stream: null };
+    } catch (errFacing: any) {
       console.warn('triggerMediaPermissions front facingMode failed, trying generic video:', errFacing);
+      if (errFacing?.name === 'NotAllowedError' || errFacing?.name === 'PermissionDeniedError') {
+        return {
+          granted: false,
+          hasCamera: false,
+          hasAudio: false,
+          stream: null,
+          error: 'Camera permission denied. Please allow camera access in your phone settings.'
+        };
+      }
     }
 
     // 2. Generic video fallback (any available camera on device)
@@ -101,10 +106,22 @@ async function executeMediaRequest(needsVideo: boolean): Promise<{
         audio: true,
         video: true
       });
-      cachedLocalStream = stream;
-      return { granted: true, hasCamera: true, hasAudio: true, stream };
-    } catch (errGeneric) {
+      stream.getTracks().forEach(t => {
+        try { t.stop(); } catch {}
+      });
+      cachedLocalStream = null;
+      return { granted: true, hasCamera: true, hasAudio: true, stream: null };
+    } catch (errGeneric: any) {
       console.warn('triggerMediaPermissions generic video failed, trying low-res constraints:', errGeneric);
+      if (errGeneric?.name === 'NotAllowedError' || errGeneric?.name === 'PermissionDeniedError') {
+        return {
+          granted: false,
+          hasCamera: false,
+          hasAudio: false,
+          stream: null,
+          error: 'Camera permission denied. Please allow camera access in your phone settings.'
+        };
+      }
     }
 
     // 3. Low-resolution standard constraint (handles older Android front cams)
@@ -113,8 +130,11 @@ async function executeMediaRequest(needsVideo: boolean): Promise<{
         audio: true,
         video: { width: { ideal: 640 }, height: { ideal: 480 } }
       });
-      cachedLocalStream = stream;
-      return { granted: true, hasCamera: true, hasAudio: true, stream };
+      stream.getTracks().forEach(t => {
+        try { t.stop(); } catch {}
+      });
+      cachedLocalStream = null;
+      return { granted: true, hasCamera: true, hasAudio: true, stream: null };
     } catch (errLowRes) {
       console.warn('triggerMediaPermissions all video constraints failed, falling back to audio:', errLowRes);
     }
@@ -122,19 +142,37 @@ async function executeMediaRequest(needsVideo: boolean): Promise<{
     // 4. Absolute fallback: audio-only if camera hardware is completely unavailable or blocked
     try {
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      cachedLocalStream = audioStream;
-      return { granted: true, hasCamera: false, hasAudio: true, stream: audioStream };
+      audioStream.getTracks().forEach(t => {
+        try { t.stop(); } catch {}
+      });
+      cachedLocalStream = null;
+      return { granted: true, hasCamera: false, hasAudio: true, stream: null };
     } catch (audioErr: any) {
-      return { granted: false, hasCamera: false, hasAudio: false, stream: null, error: audioErr?.message };
+      return {
+        granted: false,
+        hasCamera: false,
+        hasAudio: false,
+        stream: null,
+        error: audioErr?.message || 'Microphone and camera permissions required'
+      };
     }
   } else {
     // Audio-only call
     try {
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      cachedLocalStream = audioStream;
-      return { granted: true, hasCamera: false, hasAudio: true, stream: audioStream };
+      audioStream.getTracks().forEach(t => {
+        try { t.stop(); } catch {}
+      });
+      cachedLocalStream = null;
+      return { granted: true, hasCamera: false, hasAudio: true, stream: null };
     } catch (audioErr: any) {
-      return { granted: false, hasCamera: false, hasAudio: false, stream: null, error: audioErr?.message };
+      return {
+        granted: false,
+        hasCamera: false,
+        hasAudio: false,
+        stream: null,
+        error: audioErr?.message || 'Microphone permission required'
+      };
     }
   }
 }

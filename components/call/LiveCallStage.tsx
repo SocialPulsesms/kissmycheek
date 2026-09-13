@@ -109,17 +109,6 @@ export function LiveCallStage({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // 1. Instant local camera binding immediately on mount (zero lag, no play button)
-  useEffect(() => {
-    if (initialMode === 'voice') return;
-
-    const existingStream = getCachedLocalStream();
-    if (existingStream && existingStream.getVideoTracks().some(t => t.readyState === 'live')) {
-      attachStreamToVideo(localVideoRef.current, existingStream, true);
-      setHasLocalVideo(true);
-    }
-  }, [initialMode]);
-
   // 2. Provision or resolve Daily room URL
   useEffect(() => {
     let isCancelled = false;
@@ -184,18 +173,8 @@ export function LiveCallStage({
           }
         }
         setHasLocalVideo(true);
-      } else {
-        // Fallback: If Daily hasn't populated persistentTrack or is in transient state, check cached stream
-        const fallbackStream = getCachedLocalStream();
-        const fallbackTrack = fallbackStream?.getVideoTracks().find(t => t.readyState === 'live');
-        if (fallbackTrack && !isCamOff) {
-          if (localVideoRef.current && !localVideoRef.current.srcObject) {
-            attachStreamToVideo(localVideoRef.current, fallbackStream, true);
-          }
-          setHasLocalVideo(true);
-        } else if (isCamOff) {
-          setHasLocalVideo(false);
-        }
+      } else if (vState === 'off' || isCamOff) {
+        setHasLocalVideo(false);
       }
     };
 
@@ -235,17 +214,12 @@ export function LiveCallStage({
         setIsJoining(true);
         setErrorMsg(null);
 
-        // Pre-prompt native permissions immediately
-        let localStream = getCachedLocalStream();
-        if (!localStream) {
-          const permRes = await triggerMediaPermissions(initialMode);
-          localStream = permRes.stream;
-        }
-
-        // Immediately bind localStream to self-preview if available
-        if (localStream && localStream.getVideoTracks().some(t => t.readyState === 'live') && localVideoRef.current) {
-          attachStreamToVideo(localVideoRef.current, localStream, true);
-          setHasLocalVideo(true);
+        // Pre-prompt native permissions immediately so Android / browser grants access
+        const permRes = await triggerMediaPermissions(initialMode);
+        if (!permRes.granted && permRes.error) {
+          setErrorMsg(permRes.error);
+          setIsJoining(false);
+          return;
         }
 
         const DailyModule = (await import('@daily-co/daily-js')).default;
@@ -275,19 +249,6 @@ export function LiveCallStage({
           for (const [id, p] of Object.entries(participants)) {
             if (id !== 'local' && p) {
               syncRemoteParticipant(p);
-            }
-          }
-
-          // Ensure camera is active if video call and no track yet
-          if (initialMode !== 'voice') {
-            const localPart = callObject.participants()?.local;
-            const hasExisting = !!(localPart?.tracks?.video?.persistentTrack || localPart?.tracks?.video?.track);
-            if (!hasExisting) {
-              try {
-                callObject.setLocalVideo(true);
-              } catch (err) {
-                console.warn('Daily setLocalVideo on join error:', err);
-              }
             }
           }
         });
@@ -331,7 +292,6 @@ export function LiveCallStage({
         callObject.on('track-stopped', (e: any) => {
           if (!isMounted) return;
           if (e.participant?.local) {
-            // Only detach local video if camera was explicitly turned off or track is truly dead
             const p = callObject?.participants()?.local;
             const vTrack = p?.tracks?.video?.persistentTrack || p?.tracks?.video?.track;
             if (!vTrack || vTrack.readyState !== 'live' || p?.tracks?.video?.state === 'off') {
@@ -356,6 +316,8 @@ export function LiveCallStage({
             setErrorMsg('Camera hardware is currently in use by another app. Please close other camera apps and reconnect.');
           } else if (errorType.includes('Permission') || errorType.includes('NotAllowed')) {
             setErrorMsg('Camera access was declined. Please allow camera permissions in your phone settings.');
+          } else {
+            setErrorMsg('Camera device error. Please check your phone camera permissions.');
           }
         });
 
@@ -372,14 +334,11 @@ export function LiveCallStage({
           setIsJoining(false);
         });
 
-        // Pass live tracks directly to Daily
-        const videoTrack = localStream?.getVideoTracks().find(t => t.readyState === 'live');
-        const audioTrack = localStream?.getAudioTracks().find(t => t.readyState === 'live');
-
+        // Join call: Daily directly manages camera and mic devices cleanly without HAL lockouts
         await callObject.join({
           url: resolvedRoomUrl,
-          videoSource: videoTrack || (initialMode !== 'voice'),
-          audioSource: audioTrack || true,
+          startVideoOff: initialMode === 'voice',
+          startAudioOff: false,
         });
 
         if (isMounted) {
@@ -406,6 +365,7 @@ export function LiveCallStage({
           callObject.destroy();
         } catch {}
       }
+      clearCachedLocalStream();
     };
   }, [resolvedRoomUrl, initialMode]);
 
@@ -466,14 +426,6 @@ export function LiveCallStage({
         if (vTrack && vTrack.readyState === 'live') {
           attachStreamToVideo(localVideoRef.current, new MediaStream([vTrack]), true);
           setHasLocalVideo(true);
-        } else {
-          try {
-            const res = await triggerMediaPermissions('video');
-            if (res.stream && localVideoRef.current) {
-              attachStreamToVideo(localVideoRef.current, res.stream, true);
-              setHasLocalVideo(true);
-            }
-          } catch {}
         }
       }
     }

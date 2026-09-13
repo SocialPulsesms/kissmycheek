@@ -196,6 +196,14 @@ export default function RegisterPage() {
     setIsCameraActive(false);
   };
 
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [cameraStream]);
+
   const captureAndVerifySelfie = () => {
     if (!videoRef.current) return;
     setIsScanningSelfie(true);
