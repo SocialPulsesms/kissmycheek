@@ -60,7 +60,6 @@ export function LiveCallStage({
   const [partnerInRoom, setPartnerInRoom] = useState<boolean>(false);
   const [hasRemoteVideo, setHasRemoteVideo] = useState<boolean>(false);
   const [hasLocalVideo, setHasLocalVideo] = useState<boolean>(false);
-  const [isPipSwapped, setIsPipSwapped] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
@@ -177,6 +176,59 @@ export function LiveCallStage({
     let isMounted = true;
     let callObject: any = null;
 
+    // Helper to sync local participant video
+    const syncLocalParticipant = (participant: any) => {
+      if (!isMounted || !participant) return;
+      const vTrack = participant.tracks?.video?.persistentTrack || participant.tracks?.video?.track;
+      const vState = participant.tracks?.video?.state;
+
+      if (vTrack && vTrack.readyState === 'live' && vState !== 'off' && vState !== 'blocked') {
+        if (localVideoRef.current) {
+          const currStream = localVideoRef.current.srcObject as MediaStream | null;
+          const currTrack = currStream?.getVideoTracks()[0];
+          if (!currStream || currTrack?.id !== vTrack.id) {
+            attachStreamToVideo(localVideoRef.current, new MediaStream([vTrack]), true);
+          }
+        }
+        setHasLocalVideo(true);
+        setIsCamOff(false);
+      } else if (vState === 'off') {
+        setIsCamOff(true);
+        setHasLocalVideo(false);
+      }
+    };
+
+    // Helper to sync remote participant audio/video
+    const syncRemoteParticipant = (participant: any) => {
+      if (!isMounted || !participant || participant.local) return;
+      setPartnerInRoom(true);
+
+      const vTrack = participant.tracks?.video?.persistentTrack || participant.tracks?.video?.track;
+      const vState = participant.tracks?.video?.state;
+      if (vTrack && vTrack.readyState === 'live' && vState !== 'off' && vState !== 'blocked') {
+        if (remoteVideoRef.current) {
+          const currStream = remoteVideoRef.current.srcObject as MediaStream | null;
+          const currTrack = currStream?.getVideoTracks()[0];
+          if (!currStream || currTrack?.id !== vTrack.id) {
+            attachStreamToVideo(remoteVideoRef.current, new MediaStream([vTrack]), false);
+          }
+        }
+        setHasRemoteVideo(true);
+      } else if (vState === 'off') {
+        setHasRemoteVideo(false);
+      }
+
+      const aTrack = participant.tracks?.audio?.persistentTrack || participant.tracks?.audio?.track;
+      if (aTrack && aTrack.readyState === 'live' && remoteAudioRef.current) {
+        const currAudioStream = remoteAudioRef.current.srcObject as MediaStream | null;
+        const currAudioTrack = currAudioStream?.getAudioTracks()[0];
+        if (!currAudioStream || currAudioTrack?.id !== aTrack.id) {
+          remoteAudioRef.current.srcObject = new MediaStream([aTrack]);
+          remoteAudioRef.current.play().catch(() => {});
+        }
+      }
+    };
+
     async function initHeadlessDaily() {
       try {
         setIsJoining(true);
@@ -187,6 +239,12 @@ export function LiveCallStage({
         if (!localStream) {
           const permRes = await triggerMediaPermissions(initialMode);
           localStream = permRes.stream;
+        }
+
+        // Immediately bind localStream to self-preview if available
+        if (localStream && localStream.getVideoTracks().some(t => t.readyState === 'live') && localVideoRef.current) {
+          attachStreamToVideo(localVideoRef.current, localStream, true);
+          setHasLocalVideo(true);
         }
 
         const DailyModule = (await import('@daily-co/daily-js')).default;
@@ -208,36 +266,37 @@ export function LiveCallStage({
           setIsJoining(false);
           setIsConnected(true);
 
-          // Check if local camera track exists and bind to video
           const participants = callObject.participants();
-          if (participants.local?.tracks?.video?.persistentTrack && localVideoRef.current) {
-            const stream = new MediaStream([participants.local.tracks.video.persistentTrack]);
-            attachStreamToVideo(localVideoRef.current, stream, true);
-            setHasLocalVideo(true);
+          if (participants.local) {
+            syncLocalParticipant(participants.local);
           }
 
-          // Check remote participants
           for (const [id, p] of Object.entries(participants)) {
             if (id !== 'local' && p) {
-              setPartnerInRoom(true);
-              const part = p as any;
-              if (part.tracks?.video?.persistentTrack && remoteVideoRef.current) {
-                const rStream = new MediaStream([part.tracks.video.persistentTrack]);
-                attachStreamToVideo(remoteVideoRef.current, rStream, false);
-                setHasRemoteVideo(true);
-              }
-              if (part.tracks?.audio?.persistentTrack && remoteAudioRef.current) {
-                remoteAudioRef.current.srcObject = new MediaStream([part.tracks.audio.persistentTrack]);
-                remoteAudioRef.current.play().catch(() => {});
-              }
+              syncRemoteParticipant(p);
             }
+          }
+
+          // Ensure camera is active if video call
+          if (initialMode !== 'voice') {
+            callObject.setLocalVideo(true);
+          }
+        });
+
+        // Participant Updated - CRITICAL for local camera track detection in Daily
+        callObject.on('participant-updated', (e: any) => {
+          if (!isMounted || !e?.participant) return;
+          if (e.participant.local) {
+            syncLocalParticipant(e.participant);
+          } else {
+            syncRemoteParticipant(e.participant);
           }
         });
 
         // Remote participant events
-        callObject.on('participant-joined', () => {
-          if (!isMounted) return;
-          setPartnerInRoom(true);
+        callObject.on('participant-joined', (e: any) => {
+          if (!isMounted || !e?.participant) return;
+          syncRemoteParticipant(e.participant);
         });
 
         callObject.on('participant-left', () => {
@@ -252,23 +311,10 @@ export function LiveCallStage({
         // WebRTC Track Started
         callObject.on('track-started', (e: any) => {
           if (!isMounted) return;
-
           if (e.participant?.local) {
-            if (e.type === 'video' && localVideoRef.current) {
-              const stream = new MediaStream([e.track]);
-              attachStreamToVideo(localVideoRef.current, stream, true);
-              setHasLocalVideo(true);
-            }
-          } else {
-            setPartnerInRoom(true);
-            if (e.type === 'video' && remoteVideoRef.current) {
-              const stream = new MediaStream([e.track]);
-              attachStreamToVideo(remoteVideoRef.current, stream, false);
-              setHasRemoteVideo(true);
-            } else if (e.type === 'audio' && remoteAudioRef.current) {
-              remoteAudioRef.current.srcObject = new MediaStream([e.track]);
-              remoteAudioRef.current.play().catch(() => {});
-            }
+            syncLocalParticipant(e.participant);
+          } else if (e.participant) {
+            syncRemoteParticipant(e.participant);
           }
         });
 
@@ -276,9 +322,14 @@ export function LiveCallStage({
         callObject.on('track-stopped', (e: any) => {
           if (!isMounted) return;
           if (e.participant?.local) {
-            if (e.type === 'video') {
-              setHasLocalVideo(false);
-              attachStreamToVideo(localVideoRef.current, null);
+            // Only detach local video if camera was explicitly turned off or track is truly dead
+            const p = callObject?.participants()?.local;
+            const vTrack = p?.tracks?.video?.persistentTrack || p?.tracks?.video?.track;
+            if (!vTrack || vTrack.readyState !== 'live' || p?.tracks?.video?.state === 'off') {
+              if (isCamOff) {
+                setHasLocalVideo(false);
+                attachStreamToVideo(localVideoRef.current, null);
+              }
             }
           } else {
             if (e.type === 'video') {
@@ -286,6 +337,11 @@ export function LiveCallStage({
               attachStreamToVideo(remoteVideoRef.current, null);
             }
           }
+        });
+
+        callObject.on('camera-error', (e: any) => {
+          if (!isMounted) return;
+          console.warn('Daily camera error:', e);
         });
 
         // Exit / Hangup
@@ -310,6 +366,13 @@ export function LiveCallStage({
           videoSource: videoTrack || (initialMode !== 'voice'),
           audioSource: audioTrack || true,
         });
+
+        if (isMounted) {
+          const currentParts = callObject.participants();
+          if (currentParts?.local) {
+            syncLocalParticipant(currentParts.local);
+          }
+        }
 
       } catch (err: any) {
         if (!isMounted) return;
@@ -375,17 +438,29 @@ export function LiveCallStage({
   // Toggle Camera
   const toggleCam = async () => {
     if (dailyCallRef.current) {
-      const nextState = !isCamOff;
-      if (!nextState) {
-        try {
-          const res = await triggerMediaPermissions('video');
-          if (res.stream && localVideoRef.current) {
-            attachStreamToVideo(localVideoRef.current, res.stream, true);
-          }
-        } catch {}
+      const nextCamOff = !isCamOff;
+      setIsCamOff(nextCamOff);
+      dailyCallRef.current.setLocalVideo(!nextCamOff);
+
+      if (nextCamOff) {
+        setHasLocalVideo(false);
+        attachStreamToVideo(localVideoRef.current, null);
+      } else {
+        const localP = dailyCallRef.current.participants()?.local;
+        const vTrack = localP?.tracks?.video?.persistentTrack || localP?.tracks?.video?.track;
+        if (vTrack && vTrack.readyState === 'live') {
+          attachStreamToVideo(localVideoRef.current, new MediaStream([vTrack]), true);
+          setHasLocalVideo(true);
+        } else {
+          try {
+            const res = await triggerMediaPermissions('video');
+            if (res.stream && localVideoRef.current) {
+              attachStreamToVideo(localVideoRef.current, res.stream, true);
+              setHasLocalVideo(true);
+            }
+          } catch {}
+        }
       }
-      dailyCallRef.current.setLocalVideo(!nextState);
-      setIsCamOff(nextState);
     }
   };
 
@@ -466,12 +541,11 @@ export function LiveCallStage({
           ref={remoteVideoRef}
           autoPlay
           playsInline
-          webkit-playsinline="true"
-          className={`w-full h-full object-cover transition-opacity duration-500 ${hasRemoteVideo && !isPipSwapped ? 'opacity-100' : 'opacity-0 absolute inset-0'}`}
+          className={`w-full h-full object-cover transition-opacity duration-500 ${hasRemoteVideo ? 'opacity-100' : 'opacity-0 absolute inset-0'}`}
         />
 
         {/* Remote Video Placeholder (When partner's camera is off or connecting) */}
-        {(!hasRemoteVideo || isPipSwapped) && (
+        {!hasRemoteVideo && (
           <div className="absolute inset-0 z-10 bg-[#0B0B10] flex flex-col items-center justify-center p-6 text-center">
             <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-full bg-gradient-to-br from-[#1E1B13] to-black border-2 border-[#D4AF37] p-1 mb-4 relative shadow-2xl">
               {partnerPhoto ? (
@@ -504,25 +578,27 @@ export function LiveCallStage({
 
         {/* Self Camera Preview (Tinder-Style Floating Picture-in-Picture Card) */}
         <div 
-          onClick={() => setIsPipSwapped(!isPipSwapped)}
-          className="absolute bottom-4 right-4 w-28 h-40 sm:w-36 sm:h-52 rounded-2xl overflow-hidden border-2 border-[#D4AF37]/60 shadow-2xl bg-black cursor-pointer z-30 transition-transform duration-200 hover:scale-105 active:scale-95 group"
-          title="Tap to swap views"
+          className="absolute bottom-4 right-4 w-28 h-40 sm:w-36 sm:h-52 rounded-2xl overflow-hidden border-2 border-[#D4AF37]/60 shadow-2xl bg-black z-30 transition-transform duration-200 group select-none"
         >
           <video
             ref={localVideoRef}
             autoPlay
             playsInline
-            webkit-playsinline="true"
             muted
             style={{ transform: 'scaleX(-1)' }}
-            className={`w-full h-full object-cover ${!isCamOff && hasLocalVideo ? 'opacity-100' : 'opacity-0'}`}
+            className={`w-full h-full object-cover transition-opacity duration-300 ${!isCamOff ? 'opacity-100' : 'opacity-0'}`}
           />
-          {(isCamOff || !hasLocalVideo) && (
+          {isCamOff ? (
             <div className="absolute inset-0 bg-[#141418] flex flex-col items-center justify-center text-white/40 p-2">
               <VideoOff className="w-6 h-6 mb-1 text-white/40" />
               <span className="text-[10px] font-medium">Camera Off</span>
             </div>
-          )}
+          ) : !hasLocalVideo ? (
+            <div className="absolute inset-0 bg-[#141418]/80 flex flex-col items-center justify-center text-[#D4AF37]/60 p-2">
+              <Sparkles className="w-5 h-5 mb-1 animate-spin text-[#D4AF37]" />
+              <span className="text-[9px] font-medium tracking-wider">Starting...</span>
+            </div>
+          ) : null}
           <div className="absolute bottom-1 left-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[9px] font-medium text-white/70 backdrop-blur-sm pointer-events-none">
             You
           </div>
