@@ -244,31 +244,15 @@ export default function MatchesPage() {
                   <h3 className="font-serif font-bold text-lg text-white mt-1">{profile.name}, {profile.age}</h3>
                   <p className="text-xs text-white/60">{profile.occupation}</p>
                   
-                  <div className="mt-3 flex items-center gap-2">
+                  <div className="mt-3">
                     <Link 
                       href={`/messages?recipient=${profile.id}&name=${encodeURIComponent(profile.name)}&photo=${encodeURIComponent(profile.photos?.[0] || '')}`} 
-                      className="flex-1"
+                      className="block w-full"
                     >
                       <Button variant="gold" size="sm" fullWidth icon={<MessageSquare className="w-3.5 h-3.5 text-black" />}>
                         Chat Now
                       </Button>
                     </Link>
-                    <Button 
-                      variant="glass" 
-                      size="sm"
-                      onClick={async () => {
-                        await startInAppCall({
-                          partnerId: profile.id,
-                          partnerName: profile.name,
-                          partnerPhoto: profile.photos?.[0] || '',
-                          partnerOccupation: profile.occupation || 'Member',
-                          partnerLocation: profile.location || 'Verified Member',
-                          mode: 'video'
-                        });
-                      }}
-                    >
-                      Date Call
-                    </Button>
                   </div>
                 </div>
               </Card>

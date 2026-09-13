@@ -13,7 +13,6 @@ import {
   ShieldCheck, 
   RefreshCw,
   Sparkles,
-  Volume2,
   AlertCircle
 } from 'lucide-react';
 import { CreditsAndGiftingModal } from '@/components/ui/CreditsAndGiftingModal';
@@ -45,19 +44,23 @@ export function LiveCallStage({
   role = 'caller',
   onEndCall
 }: LiveCallStageProps) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const dailyFrameRef = useRef<any>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const dailyCallRef = useRef<any>(null);
 
   const [callMode, setCallMode] = useState<'voice' | 'video'>(initialMode);
   const [resolvedRoomUrl, setResolvedRoomUrl] = useState<string>(propRoomUrl || '');
   const [isJoining, setIsJoining] = useState<boolean>(true);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [partnerInRoom, setPartnerInRoom] = useState<boolean>(false);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState<boolean>(false);
+  const [hasLocalVideo, setHasLocalVideo] = useState<boolean>(false);
+  const [isPipSwapped, setIsPipSwapped] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
   const [isCamOff, setIsCamOff] = useState<boolean>(initialMode === 'voice');
-  const [cameraBlocked, setCameraBlocked] = useState<boolean>(false);
   const [secondsElapsed, setSecondsElapsed] = useState<number>(0);
 
   // Gifting modal inside call
@@ -114,106 +117,135 @@ export function LiveCallStage({
     };
   }, [propRoomUrl, initialRoomId, partnerId, initialMode]);
 
-  // 2. Mount Daily Call Frame once resolvedRoomUrl & containerRef are ready
+  // 2. Headless Daily Call Object setup (Native HTML5 video, zero iframe)
   useEffect(() => {
-    if (!resolvedRoomUrl || !containerRef.current || typeof window === 'undefined') return;
+    if (!resolvedRoomUrl || typeof window === 'undefined') return;
 
     let isMounted = true;
-    let callFrame: any = null;
+    let callObject: any = null;
 
-    async function initDaily() {
+    async function initHeadlessDaily() {
       try {
         setIsJoining(true);
         setErrorMsg(null);
 
-        // Pre-prompt or ensure camera & audio native hardware permissions
+        // Pre-prompt native permissions immediately
         try {
           await triggerMediaPermissions(initialMode);
         } catch {}
 
-        // Dynamic client-side import of @daily-co/daily-js
         const DailyModule = (await import('@daily-co/daily-js')).default;
-        if (!isMounted || !containerRef.current) return;
+        if (!isMounted) return;
 
-        // Clean up any existing iframe inside container
-        containerRef.current.innerHTML = '';
+        // Headless call object - NO IFRAME, NO DAILY UI, NO LOCK-ICON POPUP
+        callObject = DailyModule.createCallObject({
+          subscribeToTracksAutomatically: true,
+          dailyConfig: {
+            useDevicePreferenceCookies: true
+          }
+        });
 
-        callFrame = DailyModule.createFrame(containerRef.current, {
-          iframeStyle: {
-            width: '100%',
-            height: '100%',
-            border: '0',
-            borderRadius: '1.5rem',
-            backgroundColor: '#070709',
-          },
-          showLeaveButton: false,
-          showFullscreenButton: true,
-          theme: {
-            colors: {
-              mainAreaBg: '#070709',
-              mainAreaBgAccent: '#0D0D14',
-              accent: '#D4AF37',
-              accentText: '#000000',
+        dailyCallRef.current = callObject;
+
+        // Joined meeting event
+        callObject.on('joined-meeting', () => {
+          if (!isMounted) return;
+          setIsJoining(false);
+          setIsConnected(true);
+
+          // Check if local camera track exists and bind to video
+          const participants = callObject.participants();
+          if (participants.local?.tracks?.video?.persistentTrack && localVideoRef.current) {
+            localVideoRef.current.srcObject = new MediaStream([participants.local.tracks.video.persistentTrack]);
+            setHasLocalVideo(true);
+          }
+
+          // Check remote participants
+          for (const [id, p] of Object.entries(participants)) {
+            if (id !== 'local' && p) {
+              setPartnerInRoom(true);
+              const part = p as any;
+              if (part.tracks?.video?.persistentTrack && remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = new MediaStream([part.tracks.video.persistentTrack]);
+                setHasRemoteVideo(true);
+              }
+              if (part.tracks?.audio?.persistentTrack && remoteAudioRef.current) {
+                remoteAudioRef.current.srcObject = new MediaStream([part.tracks.audio.persistentTrack]);
+              }
             }
           }
         });
 
-        dailyFrameRef.current = callFrame;
-
-        // Explicitly enforce full camera/mic permissions policy on iframe
-        try {
-          const iframe = containerRef.current.querySelector('iframe');
-          if (iframe) {
-            iframe.setAttribute('allow', 'camera *; microphone *; autoplay *; display-capture *; fullscreen *');
-            iframe.setAttribute('allowusermedia', 'true');
-          }
-        } catch {}
-
-        // Daily Event Listeners
-        callFrame.on('joined-meeting', () => {
-          if (!isMounted) return;
-          setIsJoining(false);
-          setIsConnected(true);
-          setCameraBlocked(false);
-          if (initialMode !== 'voice') {
-            try {
-              callFrame.setLocalVideo(true);
-            } catch {}
-          }
-          try {
-            callFrame.setLocalAudio(true);
-          } catch {}
-        });
-
-        callFrame.on('participant-joined', () => {
+        // Remote participant events
+        callObject.on('participant-joined', () => {
           if (!isMounted) return;
           setPartnerInRoom(true);
         });
 
-        callFrame.on('participant-left', () => {
+        callObject.on('participant-left', () => {
           if (!isMounted) return;
           setPartnerInRoom(false);
+          setHasRemoteVideo(false);
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = null;
+          }
         });
 
-        callFrame.on('left-meeting', () => {
+        // WebRTC Track Started
+        callObject.on('track-started', (e: any) => {
+          if (!isMounted) return;
+
+          if (e.participant?.local) {
+            if (e.type === 'video' && localVideoRef.current) {
+              localVideoRef.current.srcObject = new MediaStream([e.track]);
+              setHasLocalVideo(true);
+            }
+          } else {
+            setPartnerInRoom(true);
+            if (e.type === 'video' && remoteVideoRef.current) {
+              remoteVideoRef.current.srcObject = new MediaStream([e.track]);
+              setHasRemoteVideo(true);
+            } else if (e.type === 'audio' && remoteAudioRef.current) {
+              remoteAudioRef.current.srcObject = new MediaStream([e.track]);
+            }
+          }
+        });
+
+        // WebRTC Track Stopped
+        callObject.on('track-stopped', (e: any) => {
+          if (!isMounted) return;
+          if (e.participant?.local) {
+            if (e.type === 'video') {
+              setHasLocalVideo(false);
+              if (localVideoRef.current) {
+                localVideoRef.current.srcObject = null;
+              }
+            }
+          } else {
+            if (e.type === 'video') {
+              setHasRemoteVideo(false);
+              if (remoteVideoRef.current) {
+                remoteVideoRef.current.srcObject = null;
+              }
+            }
+          }
+        });
+
+        // Exit / Hangup
+        callObject.on('left-meeting', () => {
           if (!isMounted) return;
           handleCleanExit();
         });
 
-        callFrame.on('camera-error', (e: any) => {
+        callObject.on('error', (e: any) => {
           if (!isMounted) return;
-          console.warn('Daily camera error:', e);
-          setCameraBlocked(true);
-        });
-
-        callFrame.on('error', (e: any) => {
-          if (!isMounted) return;
+          console.warn('Daily call error:', e);
           setErrorMsg(e?.errorMsg || 'Audio/Video streaming error');
           setIsJoining(false);
         });
 
-        // Join the Daily Room
-        await callFrame.join({
+        // Join room
+        await callObject.join({
           url: resolvedRoomUrl,
           videoSource: initialMode === 'voice' ? false : true,
           audioSource: true,
@@ -226,13 +258,14 @@ export function LiveCallStage({
       }
     }
 
-    initDaily();
+    initHeadlessDaily();
 
     return () => {
       isMounted = false;
-      if (callFrame) {
+      if (callObject) {
         try {
-          callFrame.destroy();
+          callObject.leave();
+          callObject.destroy();
         } catch {}
       }
     };
@@ -254,7 +287,6 @@ export function LiveCallStage({
   // Clean Exit Helper
   const handleCleanExit = () => {
     const finalFormatted = formatDuration(secondsElapsed);
-    // Tell signaling store call has ended
     fetch('/api/call', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -272,61 +304,42 @@ export function LiveCallStage({
 
   // Toggle Microphone
   const toggleMic = () => {
-    if (dailyFrameRef.current) {
+    if (dailyCallRef.current) {
       const nextState = !isMicMuted;
-      dailyFrameRef.current.setLocalAudio(!nextState);
+      dailyCallRef.current.setLocalAudio(!nextState);
       setIsMicMuted(nextState);
-    }
-  };
-
-  // Manual trigger to start camera if blocked or unstarted
-  const handleManualActivateCamera = async () => {
-    try {
-      await triggerMediaPermissions('video');
-      if (dailyFrameRef.current) {
-        try {
-          await dailyFrameRef.current.setLocalVideo(true);
-        } catch {}
-        try {
-          await dailyFrameRef.current.setLocalAudio(true);
-        } catch {}
-      }
-      setCameraBlocked(false);
-      setIsCamOff(false);
-    } catch (err) {
-      console.warn('Manual activate camera failed:', err);
     }
   };
 
   // Toggle Camera
   const toggleCam = async () => {
-    if (dailyFrameRef.current) {
+    if (dailyCallRef.current) {
       const nextState = !isCamOff;
       if (!nextState) {
         try {
           await triggerMediaPermissions('video');
         } catch {}
       }
-      dailyFrameRef.current.setLocalVideo(!nextState);
+      dailyCallRef.current.setLocalVideo(!nextState);
       setIsCamOff(nextState);
-      if (!nextState) setCameraBlocked(false);
     }
   };
 
-  // Flip Camera (Mobile)
+  // Flip Camera (Front/Back)
   const flipCamera = async () => {
-    if (dailyFrameRef.current?.cycleCamera) {
+    if (dailyCallRef.current?.cycleCamera) {
       try {
-        await dailyFrameRef.current.cycleCamera();
+        await dailyCallRef.current.cycleCamera();
       } catch {}
     }
   };
 
-  // End Call
+  // Hangup / End Call
   const handleHangup = async () => {
-    if (dailyFrameRef.current) {
+    if (dailyCallRef.current) {
       try {
-        await dailyFrameRef.current.leave();
+        await dailyCallRef.current.leave();
+        dailyCallRef.current.destroy();
       } catch {}
     }
     handleCleanExit();
@@ -334,11 +347,13 @@ export function LiveCallStage({
 
   return (
     <div className="fixed inset-0 z-[9995] bg-[#070709] text-white flex flex-col justify-between overflow-hidden select-none font-sans">
-      
+      {/* Hidden audio element for remote participant */}
+      <audio ref={remoteAudioRef} autoPlay playsInline />
+
       {/* Top Header Bar */}
-      <div className="relative z-20 px-4 pt-4 pb-3 flex items-center justify-between bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+      <div className="relative z-30 px-4 pt-4 pb-2 flex items-center justify-between bg-gradient-to-b from-black/90 via-black/50 to-transparent">
         {/* Partner Info Pill */}
-        <div className="flex items-center gap-3 bg-black/50 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
+        <div className="flex items-center gap-3 bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg">
           <div className="relative">
             {partnerPhoto ? (
               <img 
@@ -360,44 +375,39 @@ export function LiveCallStage({
               <Crown className="w-3 h-3 text-[#D4AF37]" />
             </div>
             <p className="text-[10px] text-white/50 truncate">
-              {isConnected ? (callMode === 'video' ? '4K Video Date' : 'HD Voice Call') : (role === 'callee' ? 'Connecting...' : 'Calling...')}
+              {isConnected ? (callMode === 'video' ? 'Face-to-Face Video' : 'HD Voice') : (role === 'callee' ? 'Connecting...' : 'Calling...')}
             </p>
           </div>
         </div>
 
         {/* Center: Live Timer & Security Pill */}
-        <div className="hidden sm:flex items-center gap-2 bg-black/50 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 text-xs font-medium text-white/80">
+        <div className="flex items-center gap-2 bg-black/60 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 text-xs font-medium">
           <ShieldCheck className="w-3.5 h-3.5 text-[#D4AF37]" />
-          <span className="text-[11px] uppercase tracking-wider text-white/60">Encrypted</span>
-          <span className="text-white/30">•</span>
           <span className="font-mono font-bold text-[#D4AF37] text-xs">{formatDuration(secondsElapsed)}</span>
         </div>
 
-        {/* Right Badge: Daily SFU Status */}
-        <div className="flex items-center gap-2">
-          <span className="sm:hidden font-mono font-bold text-xs text-[#D4AF37] bg-black/50 px-2.5 py-1 rounded-full border border-white/10">
-            {formatDuration(secondsElapsed)}
-          </span>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-[#D4AF37] text-[11px] font-bold">
-            <Sparkles className="w-3 h-3" />
-            <span>Daily 4K</span>
-          </div>
+        {/* Right Badge: Luxury Status */}
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/30 text-[#D4AF37] text-[11px] font-bold">
+          <Sparkles className="w-3 h-3" />
+          <span>4K Private</span>
         </div>
       </div>
 
-      {/* Main Video/Audio Calling Canvas */}
-      <div className="flex-1 relative mx-2 sm:mx-6 my-1 rounded-3xl overflow-hidden bg-black border border-[#D4AF37]/20 shadow-2xl flex items-center justify-center">
+      {/* Main Tinder-Style Video Stage Canvas */}
+      <div className="flex-1 relative mx-2 sm:mx-6 my-1 rounded-3xl overflow-hidden bg-[#0A0A0E] border border-white/10 shadow-2xl flex items-center justify-center">
         
-        {/* Daily Iframe Injection Container */}
-        <div 
-          ref={containerRef} 
-          className="w-full h-full absolute inset-0 z-10" 
+        {/* Remote Video Stream (Full Bleed Background) */}
+        <video
+          ref={remoteVideoRef}
+          autoPlay
+          playsInline
+          className={`w-full h-full object-cover transition-opacity duration-500 ${hasRemoteVideo && !isPipSwapped ? 'opacity-100' : 'opacity-0 absolute inset-0'}`}
         />
 
-        {/* Loading / Connecting Overlay */}
-        {isJoining && !errorMsg && (
-          <div className="absolute inset-0 z-20 bg-[#070709] flex flex-col items-center justify-center p-6 text-center">
-            <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#1E1B13] to-black border-2 border-[#D4AF37] p-1 mb-6 relative">
+        {/* Remote Video Placeholder (When partner's camera is off or connecting) */}
+        {(!hasRemoteVideo || isPipSwapped) && (
+          <div className="absolute inset-0 z-10 bg-[#0B0B10] flex flex-col items-center justify-center p-6 text-center">
+            <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-full bg-gradient-to-br from-[#1E1B13] to-black border-2 border-[#D4AF37] p-1 mb-4 relative shadow-2xl">
               {partnerPhoto ? (
                 <img 
                   src={partnerPhoto} 
@@ -405,26 +415,55 @@ export function LiveCallStage({
                   className="w-full h-full rounded-full object-cover" 
                 />
               ) : (
-                <div className="w-full h-full rounded-full bg-[#13131A] flex items-center justify-center text-[#D4AF37] font-serif text-2xl font-bold">
+                <div className="w-full h-full rounded-full bg-[#13131A] flex items-center justify-center text-[#D4AF37] font-serif text-3xl font-bold">
                   {partnerName.charAt(0).toUpperCase()}
                 </div>
               )}
-              <div className="absolute inset-0 rounded-full border-2 border-[#D4AF37] animate-ping opacity-30" />
+              {isConnected && (
+                <div className="absolute inset-0 rounded-full border-2 border-[#D4AF37] animate-ping opacity-25" />
+              )}
             </div>
 
-            <h3 className="font-serif text-xl font-bold text-white mb-1">{partnerName}</h3>
-            <p className="text-xs text-white/50 mb-6">{partnerOccupation} • {partnerLocation}</p>
+            <h3 className="font-serif text-xl sm:text-2xl font-bold text-white mb-1">{partnerName}</h3>
+            <p className="text-xs text-white/50 mb-3">{partnerOccupation} • {partnerLocation}</p>
 
-            <div className="flex items-center gap-2 text-xs text-[#D4AF37] font-semibold bg-[#D4AF37]/10 border border-[#D4AF37]/30 px-4 py-2 rounded-full shadow-lg">
-              <Sparkles className="w-4 h-4 animate-spin text-[#D4AF37]" />
-              <span>Establishing High-Definition Line...</span>
-            </div>
+            {isJoining && (
+              <div className="flex items-center gap-2 text-xs text-[#D4AF37] font-semibold bg-[#D4AF37]/10 border border-[#D4AF37]/30 px-4 py-1.5 rounded-full mt-2">
+                <Sparkles className="w-3.5 h-3.5 animate-spin text-[#D4AF37]" />
+                <span>Connecting Line...</span>
+              </div>
+            )}
           </div>
         )}
 
+        {/* Self Camera Preview (Tinder-Style Floating Picture-in-Picture Card) */}
+        <div 
+          onClick={() => setIsPipSwapped(!isPipSwapped)}
+          className="absolute bottom-4 right-4 w-28 h-40 sm:w-36 sm:h-52 rounded-2xl overflow-hidden border-2 border-[#D4AF37]/60 shadow-2xl bg-black cursor-pointer z-30 transition-transform duration-200 hover:scale-105 active:scale-95 group"
+          title="Tap to swap views"
+        >
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{ transform: 'scaleX(-1)' }}
+            className={`w-full h-full object-cover ${!isCamOff ? 'opacity-100' : 'opacity-0'}`}
+          />
+          {isCamOff && (
+            <div className="absolute inset-0 bg-[#141418] flex flex-col items-center justify-center text-white/40 p-2">
+              <VideoOff className="w-6 h-6 mb-1 text-white/40" />
+              <span className="text-[10px] font-medium">Camera Off</span>
+            </div>
+          )}
+          <div className="absolute bottom-1 left-1.5 bg-black/60 px-1.5 py-0.5 rounded text-[9px] font-medium text-white/70 backdrop-blur-sm pointer-events-none">
+            You
+          </div>
+        </div>
+
         {/* Error Fallback Notice */}
         {errorMsg && (
-          <div className="absolute inset-0 z-30 bg-[#070709]/95 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto">
+          <div className="absolute inset-0 z-40 bg-[#070709]/95 flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto">
             <div className="w-14 h-14 rounded-full bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-4">
               <AlertCircle className="w-7 h-7" />
             </div>
@@ -436,7 +475,6 @@ export function LiveCallStage({
                   setErrorMsg(null);
                   setIsJoining(true);
                   setResolvedRoomUrl('');
-                  // Triggers re-fetch
                   setTimeout(() => setResolvedRoomUrl(propRoomUrl || ''), 100);
                 }}
                 className="px-5 py-2.5 rounded-full bg-[#D4AF37] text-black text-xs font-bold hover:bg-[#c49f27] transition-all flex items-center gap-2"
@@ -447,24 +485,9 @@ export function LiveCallStage({
                 onClick={handleCleanExit}
                 className="px-5 py-2.5 rounded-full bg-white/10 text-white text-xs font-bold hover:bg-white/20 transition-all"
               >
-                Exit Call
+                Exit
               </button>
             </div>
-          </div>
-        )}
-
-        {/* Unblock / Activate Camera Prompt if hardware blocked */}
-        {cameraBlocked && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-black/90 backdrop-blur-md border border-[#D4AF37] px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-3 animate-pulse">
-            <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
-            <span className="text-xs text-white/90 font-medium">Camera access required</span>
-            <button
-              onClick={handleManualActivateCamera}
-              className="px-3.5 py-1.5 rounded-full bg-[#D4AF37] text-black text-xs font-bold hover:bg-[#c49f27] transition-all flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer"
-            >
-              <Video className="w-3.5 h-3.5 text-black" />
-              <span>Start Camera</span>
-            </button>
           </div>
         )}
 
@@ -475,7 +498,7 @@ export function LiveCallStage({
               initial={{ scale: 0.5, opacity: 0, y: 50 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.8, opacity: 0, y: -50 }}
-              className="absolute z-40 top-16 left-1/2 -translate-x-1/2 bg-black/80 backdrop-blur-md border border-[#D4AF37] rounded-3xl p-6 shadow-2xl text-center pointer-events-none"
+              className="absolute z-40 top-16 left-1/2 -translate-x-1/2 bg-black/85 backdrop-blur-md border border-[#D4AF37] rounded-3xl p-6 shadow-2xl text-center pointer-events-none"
             >
               <span className="text-5xl block mb-2">{activeGiftEffect.gift.icon}</span>
               <p className="font-serif text-sm font-bold text-[#D4AF37]">
@@ -489,14 +512,14 @@ export function LiveCallStage({
         </AnimatePresence>
       </div>
 
-      {/* Bottom Luxury Dock Controls */}
-      <div className="relative z-20 px-4 pt-2 pb-6 flex items-center justify-center">
-        <div className="flex items-center gap-3 sm:gap-4 bg-black/75 backdrop-blur-xl px-5 py-3 rounded-full border border-white/15 shadow-2xl">
+      {/* Bottom Tinder-Style Control Dock (Minimal, familiar, 4 clean circle buttons) */}
+      <div className="relative z-30 px-4 pt-2 pb-6 flex items-center justify-center">
+        <div className="flex items-center gap-3 sm:gap-4 bg-black/80 backdrop-blur-xl px-5 py-3 rounded-full border border-white/15 shadow-2xl">
           
           {/* Mute/Unmute Mic */}
           <button
             onClick={toggleMic}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-md active:scale-95 ${
               isMicMuted 
                 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500 hover:text-white' 
                 : 'bg-white/10 text-white hover:bg-white/20 border border-white/10'
@@ -509,7 +532,7 @@ export function LiveCallStage({
           {/* Camera On/Off */}
           <button
             onClick={toggleCam}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-md active:scale-95 ${
               isCamOff 
                 ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500 hover:text-white' 
                 : 'bg-white/10 text-white hover:bg-white/20 border border-white/10'
@@ -522,7 +545,7 @@ export function LiveCallStage({
           {/* Flip Camera (Mobile Front/Back) */}
           <button
             onClick={flipCamera}
-            className="w-12 h-12 rounded-full bg-white/10 text-white hover:bg-white/20 border border-white/10 flex items-center justify-center transition-all"
+            className="w-12 h-12 rounded-full bg-white/10 text-white hover:bg-white/20 border border-white/10 flex items-center justify-center transition-all shadow-md active:scale-95"
             title="Flip Camera"
           >
             <RefreshCw className="w-5 h-5" />
@@ -531,7 +554,7 @@ export function LiveCallStage({
           {/* Bespoke In-Call Luxury Gift */}
           <button
             onClick={() => setModalOpen(true)}
-            className="w-12 h-12 rounded-full bg-[#D4AF37]/20 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37] hover:text-black flex items-center justify-center transition-all shadow-md"
+            className="w-12 h-12 rounded-full bg-[#D4AF37]/20 border border-[#D4AF37]/40 text-[#D4AF37] hover:bg-[#D4AF37] hover:text-black flex items-center justify-center transition-all shadow-md active:scale-95"
             title="Send Bespoke Gift"
           >
             <Gift className="w-5 h-5" />
