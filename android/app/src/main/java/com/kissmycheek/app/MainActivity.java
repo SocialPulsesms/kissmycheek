@@ -13,7 +13,6 @@ public class MainActivity extends BridgeActivity {
     private static final int PERM_REQUEST_CODE = 200;
     private long lastBackPressTime = 0;
     private boolean isAppReady = false;
-    private android.webkit.PermissionRequest pendingPermissionRequest = null;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -33,12 +32,6 @@ public class MainActivity extends BridgeActivity {
         setupModernBackHandler();
     }
 
-    @Override
-    protected void load() {
-        super.load();
-        setupWebViewMediaSettings();
-    }
-
     private void setupWebViewMediaSettings() {
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().post(() -> {
@@ -50,59 +43,6 @@ public class MainActivity extends BridgeActivity {
                     settings.setDatabaseEnabled(true);
                     settings.setAllowFileAccess(true);
                     settings.setAllowContentAccess(true);
-
-                    // Ensure Android WebView WebChromeClient cleanly grants camera & mic for WebRTC
-                    getBridge().getWebView().setWebChromeClient(new com.getcapacitor.BridgeWebChromeClient(getBridge()) {
-                        @Override
-                        public void onPermissionRequest(final android.webkit.PermissionRequest request) {
-                            runOnUiThread(() -> {
-                                try {
-                                    boolean hasCamera = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
-                                    boolean hasAudio = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-
-                                    boolean wantsCamera = false;
-                                    boolean wantsAudio = false;
-                                    if (request.getResources() != null) {
-                                        for (String r : request.getResources()) {
-                                            if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) wantsCamera = true;
-                                            if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) wantsAudio = true;
-                                        }
-                                    }
-
-                                    boolean cameraSatisfied = !wantsCamera || hasCamera;
-                                    boolean audioSatisfied = !wantsAudio || hasAudio;
-
-                                    if (cameraSatisfied && audioSatisfied) {
-                                        // Immediately grant WebRTC hardware access to Webview
-                                        request.grant(request.getResources());
-                                    } else {
-                                        pendingPermissionRequest = request;
-                                        ActivityCompat.requestPermissions(
-                                            MainActivity.this,
-                                            new String[]{
-                                                Manifest.permission.CAMERA,
-                                                Manifest.permission.RECORD_AUDIO
-                                            },
-                                            PERM_REQUEST_CODE
-                                        );
-                                    }
-                                } catch (Exception e) {
-                                    e.printStackTrace();
-                                    try {
-                                        request.grant(request.getResources());
-                                    } catch (Exception ignored) {}
-                                }
-                            });
-                        }
-
-                        @Override
-                        public void onPermissionRequestCanceled(android.webkit.PermissionRequest request) {
-                            if (pendingPermissionRequest == request) {
-                                pendingPermissionRequest = null;
-                            }
-                            super.onPermissionRequestCanceled(request);
-                        }
-                    });
 
                     // Prevent any white flips / flashes when webview initializes
                     getBridge().getWebView().setBackgroundColor(android.graphics.Color.parseColor("#050507"));
@@ -116,7 +56,6 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onResume() {
         super.onResume();
-        setupWebViewMediaSettings();
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().setBackgroundColor(android.graphics.Color.parseColor("#050507"));
             getBridge().getWebView().resumeTimers();
@@ -196,42 +135,6 @@ public class MainActivity extends BridgeActivity {
                 },
                 PERM_REQUEST_CODE
             );
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERM_REQUEST_CODE && pendingPermissionRequest != null) {
-            final android.webkit.PermissionRequest req = pendingPermissionRequest;
-            pendingPermissionRequest = null;
-            runOnUiThread(() -> {
-                try {
-                    boolean hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
-                    boolean hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-
-                    java.util.List<String> grantedList = new java.util.ArrayList<>();
-                    if (req.getResources() != null) {
-                        for (String res : req.getResources()) {
-                            if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(res) && hasCamera) {
-                                grantedList.add(res);
-                            }
-                            if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res) && hasAudio) {
-                                grantedList.add(res);
-                            }
-                        }
-                    }
-
-                    if (!grantedList.isEmpty()) {
-                        req.grant(grantedList.toArray(new String[0]));
-                    } else {
-                        req.deny();
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    try { req.grant(req.getResources()); } catch (Exception ignored) {}
-                }
-            });
         }
     }
 

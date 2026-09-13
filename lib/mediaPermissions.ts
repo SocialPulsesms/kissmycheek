@@ -5,6 +5,13 @@
  */
 
 let cachedLocalStream: MediaStream | null = null;
+let inFlightPermissionPromise: Promise<{
+  granted: boolean;
+  hasCamera: boolean;
+  hasAudio: boolean;
+  stream: MediaStream | null;
+  error?: string;
+}> | null = null;
 
 export function getCachedLocalStream(): MediaStream | null {
   if (cachedLocalStream && cachedLocalStream.active) {
@@ -25,6 +32,7 @@ export function clearCachedLocalStream() {
     } catch {}
     cachedLocalStream = null;
   }
+  inFlightPermissionPromise = null;
 }
 
 export async function triggerMediaPermissions(mode: 'voice' | 'video' = 'video'): Promise<{
@@ -38,6 +46,11 @@ export async function triggerMediaPermissions(mode: 'voice' | 'video' = 'video')
     return { granted: false, hasCamera: false, hasAudio: false, stream: null, error: 'MediaDevices not supported' };
   }
 
+  // If a permission request is already in flight, wait for it instead of spawning a concurrent hardware request
+  if (inFlightPermissionPromise) {
+    return inFlightPermissionPromise;
+  }
+
   const needsVideo = mode !== 'voice';
 
   // Return existing active stream if available
@@ -49,6 +62,25 @@ export async function triggerMediaPermissions(mode: 'voice' | 'video' = 'video')
       return { granted: true, hasCamera: hasVid, hasAudio: hasAud, stream: existing };
     }
   }
+
+  inFlightPermissionPromise = (async () => {
+    try {
+      return await executeMediaRequest(needsVideo);
+    } finally {
+      inFlightPermissionPromise = null;
+    }
+  })();
+
+  return inFlightPermissionPromise;
+}
+
+async function executeMediaRequest(needsVideo: boolean): Promise<{
+  granted: boolean;
+  hasCamera: boolean;
+  hasAudio: boolean;
+  stream: MediaStream | null;
+  error?: string;
+}> {
 
   if (needsVideo) {
     // 1. Mobile-native front camera (avoids restrictive landscape 1280x720 which breaks portrait Android/iOS front cams)

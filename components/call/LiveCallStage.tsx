@@ -117,13 +117,6 @@ export function LiveCallStage({
     if (existingStream && existingStream.getVideoTracks().some(t => t.readyState === 'live')) {
       attachStreamToVideo(localVideoRef.current, existingStream, true);
       setHasLocalVideo(true);
-    } else {
-      triggerMediaPermissions('video').then(res => {
-        if (res.stream && localVideoRef.current) {
-          attachStreamToVideo(localVideoRef.current, res.stream, true);
-          setHasLocalVideo(true);
-        }
-      }).catch(() => {});
     }
   }, [initialMode]);
 
@@ -262,7 +255,7 @@ export function LiveCallStage({
         callObject = DailyModule.createCallObject({
           subscribeToTracksAutomatically: true,
           dailyConfig: {
-            useDevicePreferenceCookies: true
+            useDevicePreferenceCookies: false
           }
         });
 
@@ -358,6 +351,12 @@ export function LiveCallStage({
         callObject.on('camera-error', (e: any) => {
           if (!isMounted) return;
           console.warn('Daily camera error:', e);
+          const errorType = e?.error?.msg || e?.errorMsg || e?.error?.type || '';
+          if (errorType.includes('NotReadable') || errorType.includes('in use') || errorType.includes('busy')) {
+            setErrorMsg('Camera hardware is currently in use by another app. Please close other camera apps and reconnect.');
+          } else if (errorType.includes('Permission') || errorType.includes('NotAllowed')) {
+            setErrorMsg('Camera access was declined. Please allow camera permissions in your phone settings.');
+          }
         });
 
         // Exit / Hangup
