@@ -37,19 +37,14 @@ import {
   Maximize2,
   Upload,
   Plus,
-  ArrowLeft,
-  PhoneCall,
-  History,
-  Clock
+  ArrowLeft
 } from 'lucide-react';
-import { startInAppCall } from '@/components/call/GlobalCallManager';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Navigation } from '@/components/ui/Navigation';
 import { ConversationThread, ChatMessage, MessageReaction } from '@/lib/mockData';
 import { CreditsAndGiftingModal } from '@/components/ui/CreditsAndGiftingModal';
 import { BespokeGift } from '@/lib/creditsStore';
-import { CallHistoryItem } from '@/lib/callHistoryStore';
 
 // Initialized conversations starting empty for live platform
 const INITIAL_CONVERSATIONS: ConversationThread[] = [];
@@ -321,62 +316,6 @@ function MessagesContent() {
   const photoParam = searchParams.get('photo');
 
   const [currentUserPhoto, setCurrentUserPhoto] = useState<string>('');
-  const [isInitiatingCall, setIsInitiatingCall] = useState(false);
-
-  const handleStartCall = (mode: 'voice' | 'video') => {
-    if (!activeConv?.participant) return;
-    const participant = activeConv.participant;
-    const targetRoomId = `call_${[currentUserId || 'caller', participant.id].sort().join('__')}`;
-    
-    // Reliably resolve current user name from all storage sources
-    let resolvedCallerName = currentUserName || 'Exclusive Member';
-    try {
-      const savedProfile = localStorage.getItem('kmc_user_profile');
-      if (savedProfile) {
-        const parsed = JSON.parse(savedProfile);
-        if (parsed.customName || parsed.fullName || parsed.name) {
-          resolvedCallerName = parsed.customName || parsed.fullName || parsed.name;
-        }
-      }
-      const savedSession = localStorage.getItem('kmc_session');
-      if (savedSession && (!resolvedCallerName || resolvedCallerName === 'Exclusive Member')) {
-        const parsed = JSON.parse(savedSession);
-        if (parsed.customName || parsed.fullName || parsed.name) {
-          resolvedCallerName = parsed.customName || parsed.fullName || parsed.name;
-        }
-      }
-    } catch {}
-
-    // 1. Instant 0ms In-App Call
-    startInAppCall({
-      partnerId: participant.id,
-      partnerName: participant.name,
-      partnerPhoto: getParticipantPhoto(participant) || participant.photos?.[0] || (participant as any).avatar || (participant as any).photo || '',
-      partnerOccupation: participant.occupation || 'Member',
-      partnerLocation: participant.location || 'London',
-      mode,
-      roomId: targetRoomId,
-      role: 'caller'
-    });
-
-    // 2. Broadcast Call Invitation non-blockingly in background
-    fetch('/api/call', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      keepalive: true,
-      body: JSON.stringify({
-        action: 'initiate_call',
-        roomId: targetRoomId,
-        callerId: currentUserId || 'caller',
-        callerName: resolvedCallerName || 'Exclusive Member',
-        callerPhoto: currentUserPhoto,
-        calleeId: participant.id,
-        calleeName: participant.name,
-        calleeEmail: (participant as any).email || '',
-        callMode: mode
-      })
-    }).catch(() => {});
-  };
 
   const [conversations, setConversations] = useState<ConversationThread[]>(() => {
     if (typeof window === 'undefined') return INITIAL_CONVERSATIONS;
@@ -410,11 +349,6 @@ function MessagesContent() {
   const lastProcessedRecipientRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 1-on-1 Call Logs between two users modal/drawer state
-  const [isUserCallLogsOpen, setIsUserCallLogsOpen] = useState(false);
-  const [userCallHistory, setUserCallHistory] = useState<CallHistoryItem[]>([]);
-  const [isLoadingUserCalls, setIsLoadingUserCalls] = useState(false);
-  
   const [currentUserId, setCurrentUserId] = useState<string>(() => {
     if (typeof window === 'undefined') return '';
     try {
@@ -448,8 +382,6 @@ function MessagesContent() {
     } catch {}
     return '';
   });
-  const [sidebarTab, setSidebarTab] = useState<'messages' | 'calls'>('messages');
-  const [callHistory, setCallHistory] = useState<CallHistoryItem[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -499,37 +431,6 @@ function MessagesContent() {
         }
       }
     } catch {}
-  };
-
-  const fetchCallHistory = async () => {
-    try {
-      const res = await fetch('/api/call-history');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.callHistory && Array.isArray(data.callHistory)) {
-          setCallHistory(data.callHistory);
-          try {
-            localStorage.setItem('kmc_call_history_v1', JSON.stringify(data.callHistory));
-          } catch {}
-        }
-      }
-    } catch {}
-  };
-
-  const fetchUserCallLogs = async (partnerId: string) => {
-    if (!partnerId) return;
-    setIsLoadingUserCalls(true);
-    try {
-      const res = await fetch(`/api/call-history?withUser=${encodeURIComponent(partnerId)}&user1Id=${encodeURIComponent(currentUserId || '')}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.callHistory && Array.isArray(data.callHistory)) {
-          setUserCallHistory(data.callHistory);
-        }
-      }
-    } catch {} finally {
-      setIsLoadingUserCalls(false);
-    }
   };
 
   const handleQuickVerify = async () => {
@@ -743,7 +644,6 @@ function MessagesContent() {
 
   useEffect(() => {
     fetchWallet();
-    fetchCallHistory();
     fetchConversations();
 
     // 0. Load authenticated member identity dynamically
@@ -807,15 +707,6 @@ function MessagesContent() {
       if (!recipientParam && savedActiveId && !savedActiveId.startsWith('conv-') && !savedActiveId.startsWith('mock-')) {
         setActiveConvId(savedActiveId);
         activeConvIdRef.current = savedActiveId;
-      }
-
-      const savedCalls = localStorage.getItem('kmc_call_history_v1');
-      if (savedCalls) {
-        const parsedCalls = JSON.parse(savedCalls);
-        if (Array.isArray(parsedCalls) && parsedCalls.length > 0) {
-          const realCalls = parsedCalls.filter((c: any) => !MOCK_NAMES.includes(c.partnerName) && !String(c.partnerId).startsWith('prof-') && !String(c.partnerId).startsWith('profile-'));
-          setCallHistory(realCalls);
-        }
       }
     } catch (err) {}
   }, []);
@@ -967,12 +858,6 @@ function MessagesContent() {
     }
   }, [activeConv?.id]);
 
-  // Fetch 1-on-1 call history when active participant changes
-  useEffect(() => {
-    if (activeConv?.participant?.id) {
-      fetchUserCallLogs(activeConv.participant.id);
-    }
-  }, [activeConv?.participant?.id]);
 
   // Helper to determine if a message was sent by the current viewer
   const isMessageMe = (msg: ChatMessage) => {
@@ -1551,26 +1436,12 @@ function MessagesContent() {
           {/* Left Column: Conversation Threads & Call History (Lg: 4 cols) */}
           <div className={`${activeConvId ? 'hidden lg:flex' : 'flex'} lg:col-span-4 border-r border-white/10 flex-col bg-[#0A0A0E]/80 h-full min-h-0 overflow-hidden`}>
             
-            {/* Header & Sub-Tabs */}
+            {/* Header & Search */}
             <div className="p-4 border-b border-white/10 space-y-3 shrink-0">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1 bg-black/50 p-1 rounded-2xl border border-white/10">
-                  <button
-                    onClick={() => setSidebarTab('messages')}
-                    className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all ${
-                      sidebarTab === 'messages' ? 'bg-[#D4AF37] text-black font-bold shadow-md' : 'text-white/60 hover:text-white'
-                    }`}
-                  >
-                    Chats ({filteredConversations.length})
-                  </button>
-                  <button
-                    onClick={() => setSidebarTab('calls')}
-                    className={`px-3 py-1 rounded-xl text-xs font-semibold transition-all ${
-                      sidebarTab === 'calls' ? 'bg-[#D4AF37] text-black font-bold shadow-md' : 'text-white/60 hover:text-white'
-                    }`}
-                  >
-                    Call History ({callHistory.length})
-                  </button>
+                <div className="flex items-center gap-2">
+                  <h2 className="font-serif font-bold text-white text-base">Dispatches</h2>
+                  <span className="text-xs text-[#D4AF37] font-semibold">({filteredConversations.length})</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -1585,177 +1456,100 @@ function MessagesContent() {
                 </div>
               </div>
 
-              {sidebarTab === 'messages' && (
-                <div className="relative">
-                  <Search className="w-4 h-4 text-white/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search conversations..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 rounded-full bg-white/5 border border-white/10 text-xs text-white placeholder:text-white/40 focus:border-[#D4AF37] focus:outline-none transition-colors"
-                  />
-                  {searchQuery && (
-                    <button 
-                      onClick={() => setSearchQuery('')}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              )}
+              <div className="relative">
+                <Search className="w-4 h-4 text-white/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search conversations..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 rounded-full bg-white/5 border border-white/10 text-xs text-white placeholder:text-white/40 focus:border-[#D4AF37] focus:outline-none transition-colors"
+                />
+                {searchQuery && (
+                  <button 
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
 
-            {/* Conversation Threads or Call History List */}
+            {/* Conversation Threads List */}
             <div className="flex-1 overflow-y-auto overscroll-contain divide-y divide-white/5 min-h-0">
-              {sidebarTab === 'messages' ? (
-                filteredConversations.length === 0 ? (
-                  <div className="p-8 text-center flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-12 h-12 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37] mb-3">
-                      <Sparkles className="w-5 h-5" />
-                    </div>
-                    <p className="font-bold text-xs text-white">No Dispatches Yet</p>
-                    <p className="text-[11px] text-white/50 mt-1 max-w-[200px] leading-relaxed">
-                      Connect with verified club members to unlock private messaging.
-                    </p>
-                    <div className="mt-4 flex items-center gap-2">
-                      <button 
-                        onClick={handleOpenNewChat}
-                        className="px-4 py-1.5 rounded-full bg-[#D4AF37] text-black text-xs font-bold hover:bg-[#c49f27] transition-colors shadow-md flex items-center gap-1"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Message a Member
-                      </button>
-                      <Link href="/directory" className="px-3.5 py-1.5 rounded-full bg-white/10 text-white text-xs font-medium hover:bg-white/20 transition-colors">
-                        Directory
-                      </Link>
-                    </div>
+              {filteredConversations.length === 0 ? (
+                <div className="p-8 text-center flex flex-col items-center justify-center h-64 text-center">
+                  <div className="w-12 h-12 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37] mb-3">
+                    <Sparkles className="w-5 h-5" />
                   </div>
-                ) : (
-                  filteredConversations.map((conv) => {
-                    const isSelected = conv.id === activeConvId;
-                    return (
-                      <div
-                        key={conv.id}
-                        onClick={() => handleSelectConversation(conv.id)}
-                        className={`p-4 flex items-center gap-3 cursor-pointer transition-all ${
-                          isSelected ? 'bg-[#D4AF37]/15 border-l-4 border-[#D4AF37]' : 'hover:bg-white/5'
-                        }`}
-                      >
-                        <div className="relative shrink-0">
-                          {getParticipantPhoto(conv.participant) ? (
-                            <img
-                              src={getParticipantPhoto(conv.participant)}
-                              alt={conv.participant.name}
-                              className="w-11 h-11 rounded-full object-cover border border-[#D4AF37]/40 shadow-sm"
-                            />
-                          ) : (
-                            <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#1E1B13] to-black border border-[#D4AF37]/50 flex items-center justify-center text-[#D4AF37] font-serif font-bold text-base shadow-sm">
-                              {(conv.participant.name || 'M').charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          {conv.participant.online && (
-                            <div className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#070709]" />
-                          )}
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-0.5">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <h4 className="font-serif font-bold text-white text-sm truncate">{conv.participant.name}</h4>
-                              {conv.participant.tier === 'ELITE' && (
-                                <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-[#D4AF37]/30 to-amber-500/20 text-[#D4AF37] border border-[#D4AF37]/50 shrink-0">
-                                  👑 ELITE
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-[10px] text-white/40 shrink-0">{conv.lastMessageTime}</span>
-                          </div>
-                          <p className="text-xs text-white/60 truncate">{conv.lastMessage}</p>
-                        </div>
-
-                        {conv.unreadCount > 0 && (
-                          <span className="w-5 h-5 rounded-full bg-[#D4AF37] text-black text-[10px] font-bold flex items-center justify-center shrink-0 shadow-md">
-                            {conv.unreadCount}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })
-                )
-              ) : (
-                /* Call History List */
-                callHistory.length === 0 ? (
-                  <div className="p-8 text-center flex flex-col items-center justify-center h-64 text-center">
-                    <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/40 mb-3">
-                      <Phone className="w-5 h-5 text-[#D4AF37]" />
-                    </div>
-                    <p className="font-bold text-xs text-white">No Call Logs</p>
-                    <p className="text-[11px] text-white/50 mt-1 max-w-[200px] leading-relaxed">
-                      Voice and 4K video date logs with verified club patrons will be archived here.
-                    </p>
-                  </div>
-                ) : (
-                  callHistory.map((call) => (
-                    <div
-                      key={call.id}
-                      onClick={() => {
-                        setSidebarTab('messages');
-                        const existing = conversations.find(c => 
-                          c.participant?.id === call.partnerId || 
-                          c.id.includes(call.partnerId)
-                        );
-                        if (existing) {
-                          handleSelectConversation(existing.id);
-                        } else {
-                          handleSelectNewChatMember({
-                            id: call.partnerId,
-                            name: call.partnerName,
-                            photos: call.partnerPhoto ? [call.partnerPhoto] : [],
-                            occupation: call.partnerOccupation
-                          });
-                        }
-                      }}
-                      className="p-4 flex items-center justify-between gap-3 hover:bg-white/5 transition-all cursor-pointer group"
+                  <p className="font-bold text-xs text-white">No Dispatches Yet</p>
+                  <p className="text-[11px] text-white/50 mt-1 max-w-[200px] leading-relaxed">
+                    Connect with verified club members to unlock private messaging.
+                  </p>
+                  <div className="mt-4 flex items-center gap-2">
+                    <button 
+                      onClick={handleOpenNewChat}
+                      className="px-4 py-1.5 rounded-full bg-[#D4AF37] text-black text-xs font-bold hover:bg-[#c49f27] transition-colors shadow-md flex items-center gap-1"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
-                        {call.partnerPhoto ? (
+                      <Plus className="w-3.5 h-3.5" /> Message a Member
+                    </button>
+                    <Link href="/directory" className="px-3.5 py-1.5 rounded-full bg-white/10 text-white text-xs font-medium hover:bg-white/20 transition-colors">
+                      Directory
+                    </Link>
+                  </div>
+                </div>
+              ) : (
+                filteredConversations.map((conv) => {
+                  const isSelected = conv.id === activeConvId;
+                  return (
+                    <div
+                      key={conv.id}
+                      onClick={() => handleSelectConversation(conv.id)}
+                      className={`p-4 flex items-center gap-3 cursor-pointer transition-all ${
+                        isSelected ? 'bg-[#D4AF37]/15 border-l-4 border-[#D4AF37]' : 'hover:bg-white/5'
+                      }`}
+                    >
+                      <div className="relative shrink-0">
+                        {getParticipantPhoto(conv.participant) ? (
                           <img
-                            src={call.partnerPhoto}
-                            alt={call.partnerName}
-                            className="w-11 h-11 rounded-full object-cover border border-[#D4AF37]/30 group-hover:border-[#D4AF37] shrink-0 transition-colors"
+                            src={getParticipantPhoto(conv.participant)}
+                            alt={conv.participant.name}
+                            className="w-11 h-11 rounded-full object-cover border border-[#D4AF37]/40 shadow-sm"
                           />
                         ) : (
-                          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#1E1B13] to-black border border-[#D4AF37]/30 group-hover:border-[#D4AF37] flex items-center justify-center text-[#D4AF37] font-serif font-bold text-sm shrink-0 transition-colors">
-                            {(call.partnerName || 'M').charAt(0).toUpperCase()}
+                          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-[#1E1B13] to-black border border-[#D4AF37]/50 flex items-center justify-center text-[#D4AF37] font-serif font-bold text-base shadow-sm">
+                            {(conv.participant.name || 'M').charAt(0).toUpperCase()}
                           </div>
                         )}
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <h4 className="font-serif font-bold text-white group-hover:text-[#D4AF37] text-sm truncate transition-colors">{call.partnerName}</h4>
-                            <span className="px-1.5 py-0.2 rounded text-[8px] font-bold uppercase tracking-wider bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/40 shrink-0">
-                              {call.callType === 'video' ? 'HD Video' : 'Voice'}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-white/50 truncate">{call.partnerOccupation}</p>
-                          <div className="flex items-center gap-2 mt-0.5 text-[10px] text-white/40">
-                            <span>{call.timestamp}</span>
-                            <span>•</span>
-                            <span className="text-emerald-400 font-medium">{call.durationFormatted}</span>
-                          </div>
-                        </div>
+                        {conv.participant.online && (
+                          <div className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-400 border-2 border-[#070709]" />
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <Link href={`/call/${call.partnerId}?mode=${call.callType}&name=${encodeURIComponent(call.partnerName)}&photo=${encodeURIComponent(call.partnerPhoto || '')}`}>
-                          <button className="p-2 rounded-full bg-white/5 hover:bg-[#D4AF37] text-white hover:text-black transition-all border border-white/10" title="Call again">
-                            {call.callType === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
-                          </button>
-                        </Link>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <h4 className="font-serif font-bold text-white text-sm truncate">{conv.participant.name}</h4>
+                            {conv.participant.tier === 'ELITE' && (
+                              <span className="px-1.5 py-0.2 rounded text-[8px] font-black uppercase tracking-wider bg-gradient-to-r from-[#D4AF37]/30 to-amber-500/20 text-[#D4AF37] border border-[#D4AF37]/50 shrink-0">
+                                👑 ELITE
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-white/40 shrink-0">{conv.lastMessageTime}</span>
+                        </div>
+                        <p className="text-xs text-white/60 truncate">{conv.lastMessage}</p>
                       </div>
+
+                      {conv.unreadCount > 0 && (
+                        <span className="w-5 h-5 rounded-full bg-[#D4AF37] text-black text-[10px] font-bold flex items-center justify-center shrink-0 shadow-md">
+                          {conv.unreadCount}
+                        </span>
+                      )}
                     </div>
-                  ))
-                )
+                  );
+                })
               )}
             </div>
 
@@ -1827,27 +1621,6 @@ function MessagesContent() {
                       {activeConv.participant.occupation || 'Member'} • {activeConv.participant.location || 'London'}
                     </span>
                   </div>
-                </div>
-
-                {/* Call & Action Controls */}
-                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-                  <button 
-                    onClick={() => handleStartCall('voice')}
-                    disabled={isInitiatingCall}
-                    className="p-2 sm:p-2.5 rounded-full glass-panel hover:border-[#D4AF37] text-[#D4AF37] transition-all hover:scale-105 relative disabled:opacity-50" 
-                    title="Start Voice Call"
-                  >
-                    <Phone className="w-4 h-4" />
-                  </button>
-
-                  <button 
-                    onClick={() => handleStartCall('video')}
-                    disabled={isInitiatingCall}
-                    className="p-2 sm:p-2.5 rounded-full gold-gradient-bg text-black hover:scale-105 transition-transform font-bold shadow-lg relative disabled:opacity-50" 
-                    title="Start HD Video Date"
-                  >
-                    <Video className="w-4 h-4" />
-                  </button>
                 </div>
               </div>
 
@@ -2021,22 +1794,6 @@ function MessagesContent() {
                                 <span className={`text-[10px] ${isMe ? 'text-black/60' : 'text-white/50'}`}>{msg.timestamp}</span>
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => handleStartCall(msg.callType === 'voice' || msg.content.includes('Voice') || msg.content.startsWith('📞') ? 'voice' : 'video')}
-                              className={`p-2 rounded-full transition-transform hover:scale-110 shrink-0 shadow-md ${
-                                isMe 
-                                  ? 'bg-black text-[#D4AF37] hover:bg-black/90' 
-                                  : 'gold-gradient-bg text-black hover:opacity-95'
-                              }`}
-                              title="Call back"
-                            >
-                              {msg.callType === 'voice' || msg.content.includes('Voice') || msg.content.startsWith('📞') ? (
-                                <Phone className="w-3.5 h-3.5" />
-                              ) : (
-                                <Video className="w-3.5 h-3.5" />
-                              )}
-                            </button>
                           </div>
                         ) : (
                           /* 5. Text Content */
@@ -2630,184 +2387,7 @@ function MessagesContent() {
         </div>
       )}
 
-      {/* 1-ON-1 CALL LOGS MODAL BETWEEN TWO USERS */}
-      {isUserCallLogsOpen && activeConv && (
-        <div 
-          className="fixed inset-0 z-[9992] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200"
-          onClick={() => setIsUserCallLogsOpen(false)}
-        >
-          <div 
-            className="w-full max-w-lg bg-[#0D0D12] border border-[#D4AF37]/40 rounded-3xl p-6 shadow-2xl relative flex flex-col max-h-[85vh] overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="flex items-center justify-between pb-4 border-b border-white/10 shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#D4AF37]/15 border border-[#D4AF37]/30 flex items-center justify-center text-[#D4AF37]">
-                  <PhoneCall className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-serif text-lg font-bold text-white flex items-center gap-2">
-                    <span>Call Logs</span>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/40 font-sans font-bold">
-                      {userCallHistory.length}
-                    </span>
-                  </h3>
-                  <p className="text-[11px] text-white/50">
-                    Confidential call records with {activeConv.participant.name}
-                  </p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setIsUserCallLogsOpen(false)}
-                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-white/60 hover:text-white flex items-center justify-center transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            {/* Overview Metric Bar */}
-            <div className="grid grid-cols-2 gap-3 my-4 shrink-0">
-              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col">
-                <span className="text-[10px] uppercase tracking-wider text-white/40 font-medium">Total Encounters</span>
-                <span className="font-serif text-xl font-bold text-white mt-1 flex items-center gap-1.5">
-                  <Phone className="w-4 h-4 text-[#D4AF37]" /> {userCallHistory.length} calls
-                </span>
-              </div>
-              <div className="p-3.5 rounded-2xl bg-white/[0.03] border border-white/5 flex flex-col">
-                <span className="text-[10px] uppercase tracking-wider text-white/40 font-medium">Total Duration</span>
-                <span className="font-serif text-xl font-bold text-emerald-400 mt-1 flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-emerald-400" />
-                  {(() => {
-                    const totalSecs = userCallHistory.reduce((acc, curr) => acc + (curr.durationSeconds || 0), 0);
-                    const mins = Math.floor(totalSecs / 60);
-                    const secs = totalSecs % 60;
-                    return `${mins}m ${secs}s`;
-                  })()}
-                </span>
-              </div>
-            </div>
-
-            {/* Call List */}
-            <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 min-h-[220px]">
-              {isLoadingUserCalls ? (
-                <div className="flex flex-col items-center justify-center h-48 text-white/50 text-xs gap-2">
-                  <Sparkles className="w-5 h-5 text-[#D4AF37] animate-spin" />
-                  <span>Retrieving encrypted call records...</span>
-                </div>
-              ) : userCallHistory.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-48 text-center p-4">
-                  <div className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/30 mb-3">
-                    <Phone className="w-5 h-5 text-[#D4AF37]/50" />
-                  </div>
-                  <p className="text-white/80 text-xs font-bold">No Call History Yet</p>
-                  <p className="text-white/40 text-[11px] mt-1 max-w-[240px]">
-                    Voice calls and 4K video dates between you and {activeConv.participant.name} will be logged here.
-                  </p>
-                  <div className="flex items-center gap-2 mt-4">
-                    <button
-                      onClick={() => {
-                        setIsUserCallLogsOpen(false);
-                        handleStartCall('voice');
-                      }}
-                      className="px-3.5 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors"
-                    >
-                      <Phone className="w-3.5 h-3.5 text-[#D4AF37]" /> Start Voice Call
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsUserCallLogsOpen(false);
-                        handleStartCall('video');
-                      }}
-                      className="px-3.5 py-1.5 rounded-full gold-gradient-bg text-black text-xs font-bold flex items-center gap-1.5 hover:scale-105 transition-transform"
-                    >
-                      <Video className="w-3.5 h-3.5" /> Start 4K Date
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                userCallHistory.map((call) => (
-                  <div 
-                    key={call.id}
-                    className="p-3.5 rounded-2xl bg-white/[0.03] hover:bg-[#D4AF37]/10 border border-white/5 hover:border-[#D4AF37]/30 transition-all flex items-center justify-between gap-3"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
-                        call.callType === 'video' ? 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/40' : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                      }`}>
-                        {call.callType === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-serif font-bold text-sm text-white truncate">
-                            {call.callType === 'video' ? '4K Video Date' : 'HD Voice Call'}
-                          </span>
-                          <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase tracking-wider ${
-                            call.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                          }`}>
-                            {call.status}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-[10px] text-white/40">
-                          <span>{call.timestamp}</span>
-                          <span>•</span>
-                          <span className="text-emerald-400 font-semibold">{call.durationFormatted}</span>
-                          <span>•</span>
-                          <span className="text-white/60">{call.qualityPreset || '1080p'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        setIsUserCallLogsOpen(false);
-                        handleStartCall(call.callType);
-                      }}
-                      className="p-2 rounded-full bg-white/5 hover:bg-[#D4AF37] text-white hover:text-black transition-all border border-white/10 shrink-0"
-                      title={`Call ${activeConv.participant.name} again`}
-                    >
-                      {call.callType === 'video' ? <Video className="w-4 h-4" /> : <Phone className="w-4 h-4" />}
-                    </button>
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Modal Bottom Actions */}
-            <div className="pt-4 border-t border-white/10 flex items-center justify-between shrink-0">
-              <span className="text-[11px] text-white/40 flex items-center gap-1.5">
-                <Lock className="w-3 h-3 text-[#D4AF37]" /> End-to-end encrypted WebRTC sessions
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setIsUserCallLogsOpen(false);
-                    handleStartCall('voice');
-                  }}
-                  icon={<Phone className="w-3.5 h-3.5 text-[#D4AF37]" />}
-                  className="text-xs"
-                >
-                  Voice Call
-                </Button>
-                <Button
-                  variant="gold"
-                  size="sm"
-                  onClick={() => {
-                    setIsUserCallLogsOpen(false);
-                    handleStartCall('video');
-                  }}
-                  icon={<Video className="w-3.5 h-3.5 text-black" />}
-                  className="text-xs font-bold shadow-lg"
-                >
-                  4K Video Date
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Credit Wallet, Bespoke Gifting & Elite Tier Upgrade Modal */}
       <CreditsAndGiftingModal

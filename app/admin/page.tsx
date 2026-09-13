@@ -19,8 +19,6 @@ import {
   BarChart3,
   Activity,
   Zap,
-  PhoneCall,
-  Video,
   Clock,
   Filter,
   ArrowUpRight,
@@ -880,16 +878,6 @@ export default function AdminPage() {
                               <span>+500</span>
                             </button>
 
-                            <Link
-                              href={`/call/${user.id}?name=${encodeURIComponent(user.name)}&photo=${encodeURIComponent(user.photos?.[0] || '')}&mode=video`}
-                              target="_blank"
-                              className="px-2.5 py-1.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500 border border-cyan-500/40 text-cyan-300 hover:text-black font-bold text-[11px] transition-all flex items-center gap-1"
-                              title="Launch 4K WebRTC Video Call Test Room"
-                            >
-                              <Video className="w-3.5 h-3.5" />
-                              <span>Test Call</span>
-                            </Link>
-
                             <button
                               onClick={() => setSelectedUser(user)}
                               className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs transition-all"
@@ -1354,16 +1342,6 @@ export default function AdminPage() {
                   {selectedUser.tier || 'STANDARD'}
                 </span>
               </div>
-
-              {/* Instant Test Call Link */}
-              <Link
-                href={`/call/${selectedUser.id}?name=${encodeURIComponent(selectedUser.name)}&photo=${encodeURIComponent(selectedUser.photos?.[0] || '')}&mode=video`}
-                target="_blank"
-                className="px-3 py-1.5 rounded-xl bg-cyan-500 text-black font-bold text-xs hover:bg-cyan-400 transition-all flex items-center gap-1.5 shadow-lg"
-              >
-                <Video className="w-4 h-4" />
-                <span>Launch Test Video Call</span>
-              </Link>
             </div>
 
             {/* Credit Grant Hub */}
