@@ -12,6 +12,8 @@ const config: CapacitorConfig = {
     allowNavigation: [
       'kissmycheek.org',
       '*.kissmycheek.org',
+      '*.daily.co',
+      'kissmycheek.daily.co',
       'flutterwave.com',
       '*.flutterwave.com',
       'checkout.flutterwave.com',

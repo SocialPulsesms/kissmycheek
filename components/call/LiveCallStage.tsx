@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { CreditsAndGiftingModal } from '@/components/ui/CreditsAndGiftingModal';
 import { BespokeGift } from '@/lib/creditsStore';
+import { triggerMediaPermissions } from '@/lib/mediaPermissions';
 
 export interface LiveCallStageProps {
   partnerId: string;
@@ -56,6 +57,7 @@ export function LiveCallStage({
 
   const [isMicMuted, setIsMicMuted] = useState<boolean>(false);
   const [isCamOff, setIsCamOff] = useState<boolean>(initialMode === 'voice');
+  const [cameraBlocked, setCameraBlocked] = useState<boolean>(false);
   const [secondsElapsed, setSecondsElapsed] = useState<number>(0);
 
   // Gifting modal inside call
@@ -124,6 +126,11 @@ export function LiveCallStage({
         setIsJoining(true);
         setErrorMsg(null);
 
+        // Pre-prompt or ensure camera & audio native hardware permissions
+        try {
+          await triggerMediaPermissions(initialMode);
+        } catch {}
+
         // Dynamic client-side import of @daily-co/daily-js
         const DailyModule = (await import('@daily-co/daily-js')).default;
         if (!isMounted || !containerRef.current) return;
@@ -153,11 +160,29 @@ export function LiveCallStage({
 
         dailyFrameRef.current = callFrame;
 
+        // Explicitly enforce full camera/mic permissions policy on iframe
+        try {
+          const iframe = containerRef.current.querySelector('iframe');
+          if (iframe) {
+            iframe.setAttribute('allow', 'camera *; microphone *; autoplay *; display-capture *; fullscreen *');
+            iframe.setAttribute('allowusermedia', 'true');
+          }
+        } catch {}
+
         // Daily Event Listeners
         callFrame.on('joined-meeting', () => {
           if (!isMounted) return;
           setIsJoining(false);
           setIsConnected(true);
+          setCameraBlocked(false);
+          if (initialMode !== 'voice') {
+            try {
+              callFrame.setLocalVideo(true);
+            } catch {}
+          }
+          try {
+            callFrame.setLocalAudio(true);
+          } catch {}
         });
 
         callFrame.on('participant-joined', () => {
@@ -173,6 +198,12 @@ export function LiveCallStage({
         callFrame.on('left-meeting', () => {
           if (!isMounted) return;
           handleCleanExit();
+        });
+
+        callFrame.on('camera-error', (e: any) => {
+          if (!isMounted) return;
+          console.warn('Daily camera error:', e);
+          setCameraBlocked(true);
         });
 
         callFrame.on('error', (e: any) => {
@@ -248,12 +279,37 @@ export function LiveCallStage({
     }
   };
 
+  // Manual trigger to start camera if blocked or unstarted
+  const handleManualActivateCamera = async () => {
+    try {
+      await triggerMediaPermissions('video');
+      if (dailyFrameRef.current) {
+        try {
+          await dailyFrameRef.current.setLocalVideo(true);
+        } catch {}
+        try {
+          await dailyFrameRef.current.setLocalAudio(true);
+        } catch {}
+      }
+      setCameraBlocked(false);
+      setIsCamOff(false);
+    } catch (err) {
+      console.warn('Manual activate camera failed:', err);
+    }
+  };
+
   // Toggle Camera
-  const toggleCam = () => {
+  const toggleCam = async () => {
     if (dailyFrameRef.current) {
       const nextState = !isCamOff;
+      if (!nextState) {
+        try {
+          await triggerMediaPermissions('video');
+        } catch {}
+      }
       dailyFrameRef.current.setLocalVideo(!nextState);
       setIsCamOff(nextState);
+      if (!nextState) setCameraBlocked(false);
     }
   };
 
@@ -394,6 +450,21 @@ export function LiveCallStage({
                 Exit Call
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Unblock / Activate Camera Prompt if hardware blocked */}
+        {cameraBlocked && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-black/90 backdrop-blur-md border border-[#D4AF37] px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-3 animate-pulse">
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+            <span className="text-xs text-white/90 font-medium">Camera access required</span>
+            <button
+              onClick={handleManualActivateCamera}
+              className="px-3.5 py-1.5 rounded-full bg-[#D4AF37] text-black text-xs font-bold hover:bg-[#c49f27] transition-all flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer"
+            >
+              <Video className="w-3.5 h-3.5 text-black" />
+              <span>Start Camera</span>
+            </button>
           </div>
         )}
 

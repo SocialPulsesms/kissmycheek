@@ -1628,8 +1628,8 @@ function MessagesContent() {
                 <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                   <button
                     type="button"
-                    onClick={() => {
-                      startInAppCall({
+                    onClick={async () => {
+                      await startInAppCall({
                         partnerId: activeConv.participant.id,
                         partnerName: activeConv.participant.name,
                         partnerPhoto: getParticipantPhoto(activeConv.participant),
@@ -1647,8 +1647,8 @@ function MessagesContent() {
 
                   <button
                     type="button"
-                    onClick={() => {
-                      startInAppCall({
+                    onClick={async () => {
+                      await startInAppCall({
                         partnerId: activeConv.participant.id,
                         partnerName: activeConv.participant.name,
                         partnerPhoto: getParticipantPhoto(activeConv.participant),

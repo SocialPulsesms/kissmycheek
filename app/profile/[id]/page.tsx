@@ -600,8 +600,8 @@ export default function ProfilePage({ params }: { params: Promise<{ id: string }
                       fullWidth 
                       icon={<Phone className="w-4 h-4 text-[#D4AF37]" />}
                       className="flex-1"
-                      onClick={() => {
-                        startInAppCall({
+                      onClick={async () => {
+                        await startInAppCall({
                           partnerId: profile.id,
                           partnerName: profile.name,
                           partnerPhoto: profile.photos?.[0] || '',

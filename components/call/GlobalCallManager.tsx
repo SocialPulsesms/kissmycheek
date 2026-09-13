@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { Phone, PhoneOff, Video, Crown, Sparkles } from 'lucide-react';
 import { callRingtone } from '@/lib/callRingtone';
+import { triggerMediaPermissions } from '@/lib/mediaPermissions';
 import { LiveCallStage, LiveCallStageProps } from './LiveCallStage';
 
 export interface StartCallEventDetail {
@@ -18,8 +19,13 @@ export interface StartCallEventDetail {
   role?: 'caller' | 'callee';
 }
 
-export function startInAppCall(detail: StartCallEventDetail) {
+export async function startInAppCall(detail: StartCallEventDetail) {
   if (typeof window !== 'undefined') {
+    // Synchronously trigger native permission dialog in response to the user's tap
+    try {
+      await triggerMediaPermissions(detail.mode || 'video');
+    } catch {}
+
     window.dispatchEvent(new CustomEvent('kmc_start_call', { detail }));
   }
 }
@@ -201,13 +207,18 @@ export function GlobalCallManager() {
   }, [currentUserId, currentUserEmail, activeCallParams, pathname]);
 
   // Accept Call Handler
-  const handleAcceptCall = () => {
+  const handleAcceptCall = async () => {
     if (!incomingCall) return;
 
     if (stopRingtoneRef.current) {
       stopRingtoneRef.current();
       stopRingtoneRef.current = null;
     }
+
+    // Trigger native permission dialog on accept tap
+    try {
+      await triggerMediaPermissions(incomingCall.callMode);
+    } catch {}
 
     fetch('/api/call', {
       method: 'POST',

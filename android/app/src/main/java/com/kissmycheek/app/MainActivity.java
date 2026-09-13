@@ -51,14 +51,29 @@ public class MainActivity extends BridgeActivity {
                     settings.setAllowFileAccess(true);
                     settings.setAllowContentAccess(true);
 
-                    // Ensure Android WebView WebChromeClient unconditionally grants camera & mic for WebRTC
+                    // Ensure Android WebView WebChromeClient cleanly grants camera & mic for WebRTC
                     getBridge().getWebView().setWebChromeClient(new com.getcapacitor.BridgeWebChromeClient(getBridge()) {
                         @Override
                         public void onPermissionRequest(final android.webkit.PermissionRequest request) {
                             runOnUiThread(() -> {
                                 try {
-                                    checkAudioVideoPermissions();
-                                    request.grant(request.getResources());
+                                    boolean hasCamera = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+                                    boolean hasAudio = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+
+                                    if (hasCamera || hasAudio) {
+                                        // Immediately grant WebRTC hardware access to Webview
+                                        request.grant(request.getResources());
+                                    } else {
+                                        pendingPermissionRequest = request;
+                                        ActivityCompat.requestPermissions(
+                                            MainActivity.this,
+                                            new String[]{
+                                                Manifest.permission.CAMERA,
+                                                Manifest.permission.RECORD_AUDIO
+                                            },
+                                            PERM_REQUEST_CODE
+                                        );
+                                    }
                                 } catch (Exception e) {
                                     e.printStackTrace();
                                     try {
@@ -70,6 +85,9 @@ public class MainActivity extends BridgeActivity {
 
                         @Override
                         public void onPermissionRequestCanceled(android.webkit.PermissionRequest request) {
+                            if (pendingPermissionRequest == request) {
+                                pendingPermissionRequest = null;
+                            }
                             super.onPermissionRequestCanceled(request);
                         }
                     });
@@ -177,26 +195,27 @@ public class MainActivity extends BridgeActivity {
             pendingPermissionRequest = null;
             runOnUiThread(() -> {
                 try {
-                    boolean hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
-                    boolean hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-
-                    java.util.List<String> grantedResources = new java.util.ArrayList<>();
-                    for (String resource : req.getResources()) {
-                        if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource) && hasCamera) {
-                            grantedResources.add(resource);
-                        } else if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource) && hasAudio) {
-                            grantedResources.add(resource);
+                    boolean anyGranted = false;
+                    if (grantResults != null && grantResults.length > 0) {
+                        for (int res : grantResults) {
+                            if (res == PackageManager.PERMISSION_GRANTED) {
+                                anyGranted = true;
+                                break;
+                            }
                         }
                     }
 
-                    if (!grantedResources.isEmpty()) {
-                        req.grant(grantedResources.toArray(new String[0]));
+                    boolean hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+                    boolean hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+
+                    if (anyGranted || hasCamera || hasAudio) {
+                        req.grant(req.getResources());
                     } else {
                         req.deny();
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
-                    try { req.deny(); } catch (Exception ignored) {}
+                    try { req.grant(req.getResources()); } catch (Exception ignored) {}
                 }
             });
         }

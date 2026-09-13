@@ -256,8 +256,8 @@ export default function MatchesPage() {
                     <Button 
                       variant="glass" 
                       size="sm"
-                      onClick={() => {
-                        startInAppCall({
+                      onClick={async () => {
+                        await startInAppCall({
                           partnerId: profile.id,
                           partnerName: profile.name,
                           partnerPhoto: profile.photos?.[0] || '',
