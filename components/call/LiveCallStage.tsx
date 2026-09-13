@@ -17,7 +17,11 @@ import {
 } from 'lucide-react';
 import { CreditsAndGiftingModal } from '@/components/ui/CreditsAndGiftingModal';
 import { BespokeGift } from '@/lib/creditsStore';
-import { triggerMediaPermissions } from '@/lib/mediaPermissions';
+import { 
+  triggerMediaPermissions, 
+  getCachedLocalStream, 
+  clearCachedLocalStream 
+} from '@/lib/mediaPermissions';
 
 export interface LiveCallStageProps {
   partnerId: string;
@@ -68,6 +72,37 @@ export function LiveCallStage({
   const [modalTab, setModalTab] = useState<'gifting' | 'topup' | 'elite'>('gifting');
   const [activeGiftEffect, setActiveGiftEffect] = useState<{ gift: BespokeGift; reaction: string } | null>(null);
 
+  // Robust video stream attachment helper with auto-play enforcement for mobile WebView
+  const attachStreamToVideo = (
+    videoEl: HTMLVideoElement | null, 
+    stream: MediaStream | null, 
+    isMuted = false
+  ) => {
+    if (!videoEl) return;
+    if (!stream) {
+      try {
+        videoEl.srcObject = null;
+      } catch {}
+      return;
+    }
+    try {
+      videoEl.srcObject = stream;
+      videoEl.muted = isMuted;
+      videoEl.defaultMuted = isMuted;
+      videoEl.setAttribute('playsinline', 'true');
+      videoEl.setAttribute('webkit-playsinline', 'true');
+      videoEl.setAttribute('autoplay', 'true');
+      const playPromise = videoEl.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          console.warn('Video auto-play handled:', err);
+        });
+      }
+    } catch (err) {
+      console.warn('attachStreamToVideo error:', err);
+    }
+  };
+
   // Format call duration helper (e.g. 02:45)
   const formatDuration = (totalSecs: number) => {
     const mins = Math.floor(totalSecs / 60);
@@ -75,7 +110,25 @@ export function LiveCallStage({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // 1. Provision or resolve Daily room URL
+  // 1. Instant local camera binding immediately on mount (zero lag, no play button)
+  useEffect(() => {
+    if (initialMode === 'voice') return;
+
+    const existingStream = getCachedLocalStream();
+    if (existingStream && existingStream.getVideoTracks().some(t => t.readyState === 'live')) {
+      attachStreamToVideo(localVideoRef.current, existingStream, true);
+      setHasLocalVideo(true);
+    } else {
+      triggerMediaPermissions('video').then(res => {
+        if (res.stream && localVideoRef.current) {
+          attachStreamToVideo(localVideoRef.current, res.stream, true);
+          setHasLocalVideo(true);
+        }
+      }).catch(() => {});
+    }
+  }, [initialMode]);
+
+  // 2. Provision or resolve Daily room URL
   useEffect(() => {
     let isCancelled = false;
 
@@ -117,7 +170,7 @@ export function LiveCallStage({
     };
   }, [propRoomUrl, initialRoomId, partnerId, initialMode]);
 
-  // 2. Headless Daily Call Object setup (Native HTML5 video, zero iframe)
+  // 3. Headless Daily Call Object setup (Native HTML5 video, zero iframe)
   useEffect(() => {
     if (!resolvedRoomUrl || typeof window === 'undefined') return;
 
@@ -130,9 +183,11 @@ export function LiveCallStage({
         setErrorMsg(null);
 
         // Pre-prompt native permissions immediately
-        try {
-          await triggerMediaPermissions(initialMode);
-        } catch {}
+        let localStream = getCachedLocalStream();
+        if (!localStream) {
+          const permRes = await triggerMediaPermissions(initialMode);
+          localStream = permRes.stream;
+        }
 
         const DailyModule = (await import('@daily-co/daily-js')).default;
         if (!isMounted) return;
@@ -156,7 +211,8 @@ export function LiveCallStage({
           // Check if local camera track exists and bind to video
           const participants = callObject.participants();
           if (participants.local?.tracks?.video?.persistentTrack && localVideoRef.current) {
-            localVideoRef.current.srcObject = new MediaStream([participants.local.tracks.video.persistentTrack]);
+            const stream = new MediaStream([participants.local.tracks.video.persistentTrack]);
+            attachStreamToVideo(localVideoRef.current, stream, true);
             setHasLocalVideo(true);
           }
 
@@ -166,11 +222,13 @@ export function LiveCallStage({
               setPartnerInRoom(true);
               const part = p as any;
               if (part.tracks?.video?.persistentTrack && remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = new MediaStream([part.tracks.video.persistentTrack]);
+                const rStream = new MediaStream([part.tracks.video.persistentTrack]);
+                attachStreamToVideo(remoteVideoRef.current, rStream, false);
                 setHasRemoteVideo(true);
               }
               if (part.tracks?.audio?.persistentTrack && remoteAudioRef.current) {
                 remoteAudioRef.current.srcObject = new MediaStream([part.tracks.audio.persistentTrack]);
+                remoteAudioRef.current.play().catch(() => {});
               }
             }
           }
@@ -187,7 +245,7 @@ export function LiveCallStage({
           setPartnerInRoom(false);
           setHasRemoteVideo(false);
           if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = null;
+            attachStreamToVideo(remoteVideoRef.current, null);
           }
         });
 
@@ -197,16 +255,19 @@ export function LiveCallStage({
 
           if (e.participant?.local) {
             if (e.type === 'video' && localVideoRef.current) {
-              localVideoRef.current.srcObject = new MediaStream([e.track]);
+              const stream = new MediaStream([e.track]);
+              attachStreamToVideo(localVideoRef.current, stream, true);
               setHasLocalVideo(true);
             }
           } else {
             setPartnerInRoom(true);
             if (e.type === 'video' && remoteVideoRef.current) {
-              remoteVideoRef.current.srcObject = new MediaStream([e.track]);
+              const stream = new MediaStream([e.track]);
+              attachStreamToVideo(remoteVideoRef.current, stream, false);
               setHasRemoteVideo(true);
             } else if (e.type === 'audio' && remoteAudioRef.current) {
               remoteAudioRef.current.srcObject = new MediaStream([e.track]);
+              remoteAudioRef.current.play().catch(() => {});
             }
           }
         });
@@ -217,16 +278,12 @@ export function LiveCallStage({
           if (e.participant?.local) {
             if (e.type === 'video') {
               setHasLocalVideo(false);
-              if (localVideoRef.current) {
-                localVideoRef.current.srcObject = null;
-              }
+              attachStreamToVideo(localVideoRef.current, null);
             }
           } else {
             if (e.type === 'video') {
               setHasRemoteVideo(false);
-              if (remoteVideoRef.current) {
-                remoteVideoRef.current.srcObject = null;
-              }
+              attachStreamToVideo(remoteVideoRef.current, null);
             }
           }
         });
@@ -244,11 +301,14 @@ export function LiveCallStage({
           setIsJoining(false);
         });
 
-        // Join room
+        // Pass live tracks directly to Daily
+        const videoTrack = localStream?.getVideoTracks()[0];
+        const audioTrack = localStream?.getAudioTracks()[0];
+
         await callObject.join({
           url: resolvedRoomUrl,
-          videoSource: initialMode === 'voice' ? false : true,
-          audioSource: true,
+          videoSource: videoTrack || (initialMode !== 'voice'),
+          audioSource: audioTrack || true,
         });
 
       } catch (err: any) {
@@ -271,7 +331,7 @@ export function LiveCallStage({
     };
   }, [resolvedRoomUrl, initialMode]);
 
-  // 3. Call Duration Timer
+  // 4. Call Duration Timer
   useEffect(() => {
     let timer: NodeJS.Timeout | null = null;
     if (isConnected) {
@@ -286,6 +346,7 @@ export function LiveCallStage({
 
   // Clean Exit Helper
   const handleCleanExit = () => {
+    clearCachedLocalStream();
     const finalFormatted = formatDuration(secondsElapsed);
     fetch('/api/call', {
       method: 'POST',
@@ -317,7 +378,10 @@ export function LiveCallStage({
       const nextState = !isCamOff;
       if (!nextState) {
         try {
-          await triggerMediaPermissions('video');
+          const res = await triggerMediaPermissions('video');
+          if (res.stream && localVideoRef.current) {
+            attachStreamToVideo(localVideoRef.current, res.stream, true);
+          }
         } catch {}
       }
       dailyCallRef.current.setLocalVideo(!nextState);
@@ -336,6 +400,7 @@ export function LiveCallStage({
 
   // Hangup / End Call
   const handleHangup = async () => {
+    clearCachedLocalStream();
     if (dailyCallRef.current) {
       try {
         await dailyCallRef.current.leave();
@@ -401,6 +466,7 @@ export function LiveCallStage({
           ref={remoteVideoRef}
           autoPlay
           playsInline
+          webkit-playsinline="true"
           className={`w-full h-full object-cover transition-opacity duration-500 ${hasRemoteVideo && !isPipSwapped ? 'opacity-100' : 'opacity-0 absolute inset-0'}`}
         />
 
@@ -446,11 +512,12 @@ export function LiveCallStage({
             ref={localVideoRef}
             autoPlay
             playsInline
+            webkit-playsinline="true"
             muted
             style={{ transform: 'scaleX(-1)' }}
-            className={`w-full h-full object-cover ${!isCamOff ? 'opacity-100' : 'opacity-0'}`}
+            className={`w-full h-full object-cover ${!isCamOff && hasLocalVideo ? 'opacity-100' : 'opacity-0'}`}
           />
-          {isCamOff && (
+          {(isCamOff || !hasLocalVideo) && (
             <div className="absolute inset-0 bg-[#141418] flex flex-col items-center justify-center text-white/40 p-2">
               <VideoOff className="w-6 h-6 mb-1 text-white/40" />
               <span className="text-[10px] font-medium">Camera Off</span>

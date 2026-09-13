@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { Phone, PhoneOff, Video, Crown, Sparkles } from 'lucide-react';
 import { callRingtone } from '@/lib/callRingtone';
-import { triggerMediaPermissions } from '@/lib/mediaPermissions';
+import { triggerMediaPermissions, clearCachedLocalStream } from '@/lib/mediaPermissions';
 import { LiveCallStage, LiveCallStageProps } from './LiveCallStage';
 
 export interface StartCallEventDetail {
@@ -141,7 +141,10 @@ export function GlobalCallManager() {
         initialRoomId: canonicalRoomId,
         roomUrl,
         role: 'caller',
-        onEndCall: () => setActiveCallParams(null)
+        onEndCall: () => {
+          clearCachedLocalStream();
+          setActiveCallParams(null);
+        }
       });
     };
 
@@ -237,7 +240,10 @@ export function GlobalCallManager() {
       initialRoomId: incomingCall.roomId,
       roomUrl: incomingCall.roomUrl || '',
       role: 'callee',
-      onEndCall: () => setActiveCallParams(null)
+      onEndCall: () => {
+        clearCachedLocalStream();
+        setActiveCallParams(null);
+      }
     });
 
     setIncomingCall(null);
@@ -245,6 +251,7 @@ export function GlobalCallManager() {
 
   // Decline Call Handler
   const handleDeclineCall = () => {
+    clearCachedLocalStream();
     if (!incomingCall) return;
 
     if (stopRingtoneRef.current) {
