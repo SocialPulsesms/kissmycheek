@@ -50,33 +50,59 @@ export async function triggerMediaPermissions(mode: 'voice' | 'video' = 'video')
     }
   }
 
-  try {
-    // 1. Trigger native permission prompt in direct response to user gesture
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: needsVideo ? {
-        facingMode: 'user',
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      } : false
-    });
-
-    cachedLocalStream = stream;
-    return { granted: true, hasCamera: needsVideo, hasAudio: true, stream };
-  } catch (err: any) {
-    console.warn('triggerMediaPermissions primary request:', err);
-
-    // Fallback: If video failed, try audio-only
-    if (needsVideo) {
-      try {
-        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        cachedLocalStream = audioStream;
-        return { granted: true, hasCamera: false, hasAudio: true, stream: audioStream };
-      } catch (audioErr: any) {
-        return { granted: false, hasCamera: false, hasAudio: false, stream: null, error: audioErr?.message || err?.message };
-      }
+  if (needsVideo) {
+    // 1. Mobile-native front camera (avoids restrictive landscape 1280x720 which breaks portrait Android/iOS front cams)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { facingMode: 'user' }
+      });
+      cachedLocalStream = stream;
+      return { granted: true, hasCamera: true, hasAudio: true, stream };
+    } catch (errFacing) {
+      console.warn('triggerMediaPermissions front facingMode failed, trying generic video:', errFacing);
     }
 
-    return { granted: false, hasCamera: false, hasAudio: false, stream: null, error: err?.message };
+    // 2. Generic video fallback (any available camera on device)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true
+      });
+      cachedLocalStream = stream;
+      return { granted: true, hasCamera: true, hasAudio: true, stream };
+    } catch (errGeneric) {
+      console.warn('triggerMediaPermissions generic video failed, trying low-res constraints:', errGeneric);
+    }
+
+    // 3. Low-resolution standard constraint (handles older Android front cams)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+      cachedLocalStream = stream;
+      return { granted: true, hasCamera: true, hasAudio: true, stream };
+    } catch (errLowRes) {
+      console.warn('triggerMediaPermissions all video constraints failed, falling back to audio:', errLowRes);
+    }
+
+    // 4. Absolute fallback: audio-only if camera hardware is completely unavailable or blocked
+    try {
+      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      cachedLocalStream = audioStream;
+      return { granted: true, hasCamera: false, hasAudio: true, stream: audioStream };
+    } catch (audioErr: any) {
+      return { granted: false, hasCamera: false, hasAudio: false, stream: null, error: audioErr?.message };
+    }
+  } else {
+    // Audio-only call
+    try {
+      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      cachedLocalStream = audioStream;
+      return { granted: true, hasCamera: false, hasAudio: true, stream: audioStream };
+    } catch (audioErr: any) {
+      return { granted: false, hasCamera: false, hasAudio: false, stream: null, error: audioErr?.message };
+    }
   }
 }

@@ -60,7 +60,19 @@ public class MainActivity extends BridgeActivity {
                                     boolean hasCamera = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
                                     boolean hasAudio = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
 
-                                    if (hasCamera || hasAudio) {
+                                    boolean wantsCamera = false;
+                                    boolean wantsAudio = false;
+                                    if (request.getResources() != null) {
+                                        for (String r : request.getResources()) {
+                                            if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) wantsCamera = true;
+                                            if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) wantsAudio = true;
+                                        }
+                                    }
+
+                                    boolean cameraSatisfied = !wantsCamera || hasCamera;
+                                    boolean audioSatisfied = !wantsAudio || hasAudio;
+
+                                    if (cameraSatisfied && audioSatisfied) {
                                         // Immediately grant WebRTC hardware access to Webview
                                         request.grant(request.getResources());
                                     } else {
@@ -195,21 +207,23 @@ public class MainActivity extends BridgeActivity {
             pendingPermissionRequest = null;
             runOnUiThread(() -> {
                 try {
-                    boolean anyGranted = false;
-                    if (grantResults != null && grantResults.length > 0) {
-                        for (int res : grantResults) {
-                            if (res == PackageManager.PERMISSION_GRANTED) {
-                                anyGranted = true;
-                                break;
+                    boolean hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+                    boolean hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+
+                    java.util.List<String> grantedList = new java.util.ArrayList<>();
+                    if (req.getResources() != null) {
+                        for (String res : req.getResources()) {
+                            if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(res) && hasCamera) {
+                                grantedList.add(res);
+                            }
+                            if (android.webkit.PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(res) && hasAudio) {
+                                grantedList.add(res);
                             }
                         }
                     }
 
-                    boolean hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
-                    boolean hasAudio = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
-
-                    if (anyGranted || hasCamera || hasAudio) {
-                        req.grant(req.getResources());
+                    if (!grantedList.isEmpty()) {
+                        req.grant(grantedList.toArray(new String[0]));
                     } else {
                         req.deny();
                     }

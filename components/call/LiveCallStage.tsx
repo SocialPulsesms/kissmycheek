@@ -191,10 +191,18 @@ export function LiveCallStage({
           }
         }
         setHasLocalVideo(true);
-        setIsCamOff(false);
-      } else if (vState === 'off') {
-        setIsCamOff(true);
-        setHasLocalVideo(false);
+      } else {
+        // Fallback: If Daily hasn't populated persistentTrack or is in transient state, check cached stream
+        const fallbackStream = getCachedLocalStream();
+        const fallbackTrack = fallbackStream?.getVideoTracks().find(t => t.readyState === 'live');
+        if (fallbackTrack && !isCamOff) {
+          if (localVideoRef.current && !localVideoRef.current.srcObject) {
+            attachStreamToVideo(localVideoRef.current, fallbackStream, true);
+          }
+          setHasLocalVideo(true);
+        } else if (isCamOff) {
+          setHasLocalVideo(false);
+        }
       }
     };
 
@@ -277,9 +285,17 @@ export function LiveCallStage({
             }
           }
 
-          // Ensure camera is active if video call
+          // Ensure camera is active if video call and no track yet
           if (initialMode !== 'voice') {
-            callObject.setLocalVideo(true);
+            const localPart = callObject.participants()?.local;
+            const hasExisting = !!(localPart?.tracks?.video?.persistentTrack || localPart?.tracks?.video?.track);
+            if (!hasExisting) {
+              try {
+                callObject.setLocalVideo(true);
+              } catch (err) {
+                console.warn('Daily setLocalVideo on join error:', err);
+              }
+            }
           }
         });
 
@@ -358,8 +374,8 @@ export function LiveCallStage({
         });
 
         // Pass live tracks directly to Daily
-        const videoTrack = localStream?.getVideoTracks()[0];
-        const audioTrack = localStream?.getAudioTracks()[0];
+        const videoTrack = localStream?.getVideoTracks().find(t => t.readyState === 'live');
+        const audioTrack = localStream?.getAudioTracks().find(t => t.readyState === 'live');
 
         await callObject.join({
           url: resolvedRoomUrl,
