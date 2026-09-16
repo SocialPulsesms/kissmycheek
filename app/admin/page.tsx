@@ -1344,14 +1344,14 @@ export default function AdminPage() {
                 </span>
               </div>
 
-              {/* Launch Test Call */}
+              {/* Direct Message Member */}
               <Link
-                href={`/call/${selectedUser.id}?name=${encodeURIComponent(selectedUser.name)}&photo=${encodeURIComponent(selectedUser.photos?.[0] || '')}&mode=video`}
+                href={`/messages?recipient=${selectedUser.id}&name=${encodeURIComponent(selectedUser.name)}&photo=${encodeURIComponent(selectedUser.photos?.[0] || '')}`}
                 target="_blank"
                 className="px-3 py-1.5 rounded-xl bg-[#D4AF37] text-black font-bold text-xs hover:bg-[#c49f27] transition-all flex items-center gap-1.5 shadow-lg"
               >
-                <Video className="w-4 h-4" />
-                <span>Launch Test Video Call</span>
+                <MessageSquare className="w-4 h-4" />
+                <span>Message Member</span>
               </Link>
             </div>
 

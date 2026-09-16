@@ -9,7 +9,6 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Navigation } from '@/components/ui/Navigation';
 import { MemberProfile } from '@/lib/mockData';
-import { startInAppCall } from '@/components/call/GlobalCallManager';
 
 export default function MatchesPage() {
   const [activeTab, setActiveTab] = useState<'likedYou' | 'youLiked' | 'mutual' | 'expiring'>('likedYou');

@@ -9,14 +9,13 @@ import {
   Send, 
   Paperclip, 
   Mic, 
-  Phone, 
-  Video, 
   MoreVertical, 
   Smile, 
   CheckCheck,
   Play,
   Pause,
   Volume2,
+  VolumeX,
   Image as ImageIcon,
   ShieldCheck,
   ShieldAlert,
@@ -37,9 +36,12 @@ import {
   Maximize2,
   Upload,
   ArrowLeft,
-  Plus
+  Plus,
+  ExternalLink,
+  Wand2,
+  PartyPopper
 } from 'lucide-react';
-import { startInAppCall } from '@/components/call/GlobalCallManager';
+import confetti from 'canvas-confetti';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Navigation } from '@/components/ui/Navigation';
@@ -245,6 +247,127 @@ const EMOJI_REACTIONS = [
   '😬', '🫣', '😳', '💋', '😏', '✨', '🫠', '🫦'
 ];
 
+// Curated 1-Tap Luxury Icebreakers
+export interface IcebreakerPrompt {
+  id: string;
+  emoji: string;
+  topic: string;
+  text: string;
+}
+
+export const ICEBREAKER_PROMPTS: IcebreakerPrompt[] = [
+  { id: 'ib-1', emoji: '🥂', topic: 'Midnight Toast', text: "A toast to our match — tell me the best cocktail you've ever had." },
+  { id: 'ib-2', emoji: '✨', topic: 'Secret Passion', text: "What's something you're secretly passionate about that nobody guesses?" },
+  { id: 'ib-3', emoji: '🍸', topic: 'First Encounter', text: "Espresso Martini or Vintage Rosé for our first rendezvous?" },
+  { id: 'ib-4', emoji: '✈️', topic: 'Midnight Flight', text: "If we had a private jet right now, where are we taking off to?" },
+  { id: 'ib-5', emoji: '🔥', topic: 'Cheeky Confession', text: "Cheeky question: what caught your eye first about my profile?" },
+  { id: 'ib-6', emoji: '🎶', topic: 'Late-Night Track', text: "What song defines your midnight mood right now?" },
+  { id: 'ib-7', emoji: '🌹', topic: 'Flirting Style', text: "Rate your flirting style: subtly dangerous or unapologetically charming?" },
+  { id: 'ib-8', emoji: '🏰', topic: 'Rendezvous Vibe', text: "Candlelit rooftop dinner or late-night art gallery lock-in?" },
+];
+
+// Curated Charm & Wingman Opener Suggestions
+export interface CharmLine {
+  id: string;
+  category: 'flirty' | 'luxe' | 'cheeky' | 'intrigue';
+  label: string;
+  line: string;
+}
+
+export const CHARM_LINES: CharmLine[] = [
+  { id: 'cl-1', category: 'flirty', label: 'Magnetic Aura', line: "Your photos have an undeniable aura. Tell me the story behind your smile." },
+  { id: 'cl-2', category: 'flirty', label: 'Dangerous Chemistry', line: "I'm officially convinced our chemistry would cause a scene." },
+  { id: 'cl-3', category: 'flirty', label: 'Can’t Look Away', line: "I usually take my time, but you made waiting completely impossible." },
+  { id: 'cl-4', category: 'flirty', label: 'Seductive Charm', line: "Are you always this captivating, or did you make an effort just for today?" },
+
+  { id: 'cl-5', category: 'luxe', label: 'Dom Pérignon Vibe', line: "Champagne tastes noticeably better with extraordinary company. Let's raise a glass." },
+  { id: 'cl-6', category: 'luxe', label: 'Effortless Caliber', line: "First impression: effortlessly high-caliber. What does your ideal evening look like?" },
+  { id: 'cl-7', category: 'luxe', label: 'Monaco Midnight', line: "They say elegance is an attitude — you clearly wrote the book on it." },
+  { id: 'cl-8', category: 'luxe', label: 'Private Altitude', line: "Life's too short for dull conversations and cheap drinks. What excites you most?" },
+
+  { id: 'cl-9', category: 'cheeky', label: 'High Stakes', line: "Two truths and a lie, but with high stakes. You go first." },
+  { id: 'cl-10', category: 'cheeky', label: 'Boring Message Cure', line: "I bet you get 50 boring messages a day. Here's a cure: what made you laugh hardest today?" },
+  { id: 'cl-11', category: 'cheeky', label: 'Guilty Pleasure', line: "Tell me your most controversial opinion — I promise to be intrigued, not judgmental." },
+  { id: 'cl-12', category: 'cheeky', label: 'Cheeky Trouble', line: "I have a feeling you're either terrible trouble or the best company in this city." },
+
+  { id: 'cl-13', category: 'intrigue', label: 'The Boldest Risk', line: "What's the boldest, most thrilling risk you've ever taken that paid off?" },
+  { id: 'cl-14', category: 'intrigue', label: 'Pure Obsession', line: "What is a topic you could speak about passionately for three hours straight?" },
+  { id: 'cl-15', category: 'intrigue', label: 'Midnight Reflection', line: "What's something you value deeply that most people take for granted?" },
+  { id: 'cl-16', category: 'intrigue', label: 'Spark of Curiosity', line: "What was the exact moment you realized you were living life on your own terms?" },
+];
+
+// Web Audio synthesizer for tactile luxury feedback
+const playLuxurySound = (type: 'send' | 'receive' | 'reaction' | 'sparkle' | 'pop') => {
+  if (typeof window === 'undefined') return;
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+
+    if (type === 'send') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(520, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.08);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+      osc.start(now);
+      osc.stop(now + 0.1);
+    } else if (type === 'receive') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(659.25, now);
+      osc.frequency.setValueAtTime(880, now + 0.08);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } else if (type === 'reaction') {
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(660, now + 0.06);
+      gain.gain.setValueAtTime(0.1, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      osc.start(now);
+      osc.stop(now + 0.08);
+    } else if (type === 'sparkle') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(700, now);
+      osc.frequency.exponentialRampToValueAtTime(1400, now + 0.14);
+      gain.gain.setValueAtTime(0.12, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+      osc.start(now);
+      osc.stop(now + 0.16);
+    } else if (type === 'pop') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(600, now);
+      osc.frequency.exponentialRampToValueAtTime(900, now + 0.04);
+      gain.gain.setValueAtTime(0.08, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+      osc.start(now);
+      osc.stop(now + 0.06);
+    }
+  } catch {}
+};
+
+// Gold celebration confetti burst
+const triggerGoldConfetti = () => {
+  try {
+    confetti({
+      particleCount: 45,
+      spread: 65,
+      origin: { y: 0.7 },
+      colors: ['#D4AF37', '#FFDF73', '#FFFFFF', '#E5C158', '#FF4B72'],
+      ticks: 120,
+      gravity: 1.1,
+      scalar: 0.9,
+    });
+  } catch {}
+};
+
 const MOCK_NAMES = [
   'Sophia Nwachukwu',
   'Alexander Okonkwo',
@@ -406,6 +529,18 @@ function MessagesContent() {
   const [activeLightboxImage, setActiveLightboxImage] = useState<string | null>(null);
   const [reactionMenuMessageId, setReactionMenuMessageId] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // High-Interactivity Chat States
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    return localStorage.getItem('kmc_chat_sound') !== 'disabled';
+  });
+  const [isChatSearchOpen, setIsChatSearchOpen] = useState<boolean>(false);
+  const [chatSearchTerm, setChatSearchTerm] = useState<string>('');
+  const [isCharmDrawerOpen, setIsCharmDrawerOpen] = useState<boolean>(false);
+  const [charmCategory, setCharmCategory] = useState<'flirty' | 'luxe' | 'cheeky' | 'intrigue'>('flirty');
+  const [floatingHeart, setFloatingHeart] = useState<{ id: number; x: number; y: number } | null>(null);
+  const lastTapRef = useRef<{ [msgId: string]: number }>({});
 
   // Member Wallet, Tier, Verification & Gifting modal state
   const [currentUserName, setCurrentUserName] = useState<string>('Exclusive Member');
@@ -1054,6 +1189,11 @@ function MessagesContent() {
 
     setReactionMenuMessageId(null);
 
+    if (soundEnabled) playLuxurySound('reaction');
+    if (['❤️', '🔥', '💋', '🥂', '👑', '😍', '✨', '🫦'].includes(emoji)) {
+      triggerGoldConfetti();
+    }
+
     try {
       const res = await fetch('/api/messages', {
         method: 'POST',
@@ -1078,9 +1218,95 @@ function MessagesContent() {
     } catch {}
   };
 
+  // Double-Tap Message to Like (Heart Burst Reaction)
+  const handleMessageBubbleClick = (e: React.MouseEvent, msg: ChatMessage) => {
+    const now = Date.now();
+    const lastTap = lastTapRef.current[msg.id] || 0;
+    if (now - lastTap < 350) {
+      lastTapRef.current[msg.id] = 0;
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      setFloatingHeart({ id: Date.now(), x, y });
+      setTimeout(() => setFloatingHeart(null), 900);
+      if (soundEnabled) playLuxurySound('reaction');
+      triggerGoldConfetti();
+      handleReactToMessage(msg.id, '❤️');
+    } else {
+      lastTapRef.current[msg.id] = now;
+    }
+  };
+
+  // 1-Tap Luxury Icebreaker Dispatcher
+  const handleSendIcebreaker = async (icebreaker: IcebreakerPrompt) => {
+    if (soundEnabled) playLuxurySound('send');
+    triggerGoldConfetti();
+
+    const now = new Date();
+    const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const fullText = `${icebreaker.emoji} ${icebreaker.text}`;
+
+    const optMsg: ChatMessage = {
+      id: `m-ib-${Date.now()}`,
+      senderId: currentUserId || 'user-me',
+      content: fullText,
+      timestamp: timeString,
+      read: true
+    };
+
+    setConversations(prev => prev.map(c => {
+      if (c.id === activeConvId) {
+        return {
+          ...c,
+          unreadCount: 0,
+          lastMessage: fullText,
+          lastMessageTime: timeString,
+          messages: [...c.messages, optMsg]
+        };
+      }
+      return c;
+    }));
+
+    setTimeout(() => scrollToBottom(true), 50);
+
+    try {
+      const currentActive = conversations.find(c => c.id === activeConvId);
+      const res = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          threadId: activeConvId,
+          recipientId: currentActive?.participant?.id || activeConvId.replace(/^th[-_]/, ''),
+          senderId: currentUserId,
+          participantName: currentActive?.participant?.name,
+          participantPhoto: currentActive?.participant?.photos?.[0],
+          participantLocation: currentActive?.participant?.location,
+          participantOccupation: currentActive?.participant?.occupation,
+          content: fullText
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.updatedThread) {
+          setConversations(prev => prev.map(c => c.id === activeConvId ? data.updatedThread : c));
+          scrollToBottom(true);
+        }
+      }
+    } catch {}
+  };
+
+  // Select Charm / Wingman Opener
+  const handleSelectCharmLine = (line: string) => {
+    setMessageInput(line);
+    setIsCharmDrawerOpen(false);
+    if (soundEnabled) playLuxurySound('pop');
+  };
+
   // Send Sticker Handler
   const handleSendSticker = async (sticker: { code: string; label: string }) => {
     setIsStickerDrawerOpen(false);
+    if (soundEnabled) playLuxurySound('sparkle');
+    triggerGoldConfetti();
 
     const now = new Date();
     const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -1212,6 +1438,9 @@ function MessagesContent() {
   };
 
   const handleGiftSentInChat = (gift: BespokeGift) => {
+    if (soundEnabled) playLuxurySound('sparkle');
+    triggerGoldConfetti();
+
     const timeString = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const giftMsg: ChatMessage = {
       id: `m-gift-${Date.now()}`,
@@ -1263,6 +1492,7 @@ function MessagesContent() {
     const text = textToSend !== undefined ? textToSend : messageInput;
     if (!text.trim()) return;
 
+    if (soundEnabled) playLuxurySound('send');
     setMessageInput('');
 
     const now = new Date();
@@ -1624,27 +1854,99 @@ function MessagesContent() {
                   </div>
                 </div>
 
-                {/* Tinder-Style Single Video Call Action Button */}
-                <div className="flex items-center gap-2 shrink-0">
+                {/* Interactive Chat Actions Suite */}
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  {/* In-Chat Search Button */}
                   <button
                     type="button"
-                    onClick={async () => {
-                      await startInAppCall({
-                        partnerId: activeConv.participant.id,
-                        partnerName: activeConv.participant.name,
-                        partnerPhoto: getParticipantPhoto(activeConv.participant),
-                        partnerOccupation: activeConv.participant.occupation,
-                        partnerLocation: activeConv.participant.location,
-                        mode: 'video'
-                      });
+                    onClick={() => {
+                      setIsChatSearchOpen(!isChatSearchOpen);
+                      if (isChatSearchOpen) setChatSearchTerm('');
                     }}
-                    className="w-10 h-10 rounded-full bg-[#D4AF37]/10 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/30 text-[#D4AF37] transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer"
-                    title="Start Video Call"
+                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full border transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer ${
+                      isChatSearchOpen
+                        ? 'bg-[#D4AF37] text-black border-[#D4AF37]'
+                        : 'bg-white/5 hover:bg-white/10 border-white/10 text-white/70 hover:text-white'
+                    }`}
+                    title="Search within conversation"
                   >
-                    <Video className="w-4 h-4 text-[#D4AF37]" />
+                    <Search className="w-4 h-4" />
                   </button>
+
+                  {/* Sound FX Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !soundEnabled;
+                      setSoundEnabled(next);
+                      if (typeof window !== 'undefined') {
+                        localStorage.setItem('kmc_chat_sound', next ? 'enabled' : 'disabled');
+                      }
+                      if (next) playLuxurySound('pop');
+                    }}
+                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full border transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer ${
+                      soundEnabled
+                        ? 'bg-[#D4AF37]/10 hover:bg-[#D4AF37]/25 border-[#D4AF37]/30 text-[#D4AF37]'
+                        : 'bg-white/5 hover:bg-white/10 border-white/10 text-white/35 hover:text-white/60'
+                    }`}
+                    title={soundEnabled ? 'Sensory Sound: On' : 'Sensory Sound: Muted'}
+                  >
+                    {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                  </button>
+
+                  {/* Send VIP Gift Button */}
+                  <button
+                    type="button"
+                    onClick={() => { setModalTab('gifting'); setModalOpen(true); }}
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-r from-amber-500/20 to-rose-500/20 hover:from-amber-500/30 hover:to-rose-500/30 border border-[#D4AF37]/40 text-[#D4AF37] transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer"
+                    title="Send Bespoke VIP Gift"
+                  >
+                    <Gift className="w-4 h-4 text-[#D4AF37]" />
+                  </button>
+
+                  {/* View Member Profile */}
+                  <Link
+                    href={`/profile/${activeConv.participant.id}`}
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all flex items-center justify-center shadow-md active:scale-95"
+                    title="View Full Profile"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </Link>
                 </div>
               </div>
+
+              {/* In-Chat Search Bar Drawer */}
+              <AnimatePresence>
+                {isChatSearchOpen && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="px-4 py-2.5 bg-[#0b0b12] border-b border-[#D4AF37]/25 flex items-center gap-2 shrink-0 shadow-inner"
+                  >
+                    <Search className="w-4 h-4 text-[#D4AF37] shrink-0" />
+                    <input
+                      type="text"
+                      value={chatSearchTerm}
+                      onChange={(e) => setChatSearchTerm(e.target.value)}
+                      placeholder="Search dispatches in this conversation..."
+                      className="flex-1 bg-transparent text-xs text-white placeholder:text-white/40 focus:outline-none"
+                      autoFocus
+                    />
+                    {chatSearchTerm && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setChatSearchTerm('')}
+                          className="p-1 text-white/40 hover:text-white"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
               {/* Message History Window */}
               <div 
@@ -1674,183 +1976,219 @@ function MessagesContent() {
                   </div>
                 )}
 
-                {activeConv.messages.map((msg) => {
-                  const isMe = isMessageMe(msg);
+                {(() => {
+                  const filteredMsgList = (isChatSearchOpen && chatSearchTerm.trim())
+                    ? activeConv.messages.filter(m => 
+                        String(m.content || '').toLowerCase().includes(chatSearchTerm.toLowerCase()) ||
+                        String(m.stickerCode || '').includes(chatSearchTerm)
+                      )
+                    : activeConv.messages;
 
-                  return (
-                    <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative`}>
-                      
-                      {/* Incoming partner identity crest & name */}
-                      {!isMe && (
-                        <div className="flex items-center gap-1.5 mb-1 pl-1">
-                          <div className="w-5 h-5 rounded-full overflow-hidden border border-[#D4AF37]/50 bg-black flex items-center justify-center shrink-0">
-                            {getParticipantPhoto(activeConv.participant) ? (
-                              <img src={getParticipantPhoto(activeConv.participant)} alt={activeConv.participant.name} className="w-full h-full object-cover" />
-                            ) : (
-                              <span className="text-[9px] font-serif font-bold text-[#D4AF37]">
-                                {activeConv.participant.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'KM'}
-                              </span>
-                            )}
-                          </div>
-                          <span className="text-[11px] font-semibold text-white/70">{activeConv.participant.name}</span>
-                        </div>
-                      )}
-
-                      {/* Floating Luxury Emoji Quick Bar */}
-                      <div className={`opacity-0 group-hover:opacity-100 transition-opacity absolute -top-8 ${isMe ? 'right-2' : 'left-2'} z-20 flex items-center gap-1 bg-[#14141E] border border-[#D4AF37]/50 rounded-full px-2.5 py-1 shadow-2xl backdrop-blur-md max-w-[280px] sm:max-w-none overflow-x-auto no-scrollbar`}>
-                        {EMOJI_REACTIONS.map(emoji => (
-                          <button
-                            key={emoji}
-                            type="button"
-                            onClick={() => handleReactToMessage(msg.id, emoji)}
-                            className="hover:scale-135 active:scale-95 transition-transform text-xs p-1"
-                            title={`React with ${emoji}`}
-                          >
-                            {emoji}
-                          </button>
-                        ))}
+                  if (isChatSearchOpen && chatSearchTerm.trim() && filteredMsgList.length === 0) {
+                    return (
+                      <div className="py-12 px-4 text-center">
+                        <p className="text-xs text-white/50">No dispatches match "{chatSearchTerm}"</p>
+                        <button
+                          type="button"
+                          onClick={() => setChatSearchTerm('')}
+                          className="mt-2 text-[11px] text-[#D4AF37] hover:underline"
+                        >
+                          Clear Search
+                        </button>
                       </div>
+                    );
+                  }
 
-                      {/* Message Bubble */}
-                      <div className={`max-w-md rounded-2xl text-sm leading-relaxed relative ${
-                        isMe 
-                          ? 'gold-gradient-bg text-black font-medium rounded-br-none shadow-md' 
-                          : 'glass-panel text-white rounded-bl-none border-white/10 shadow-md'
-                      } ${msg.mediaType === 'image' || msg.stickerCode ? 'p-2' : 'p-4'}`}>
+                  return filteredMsgList.map((msg) => {
+                    const isMe = isMessageMe(msg);
+
+                    return (
+                      <div key={msg.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} group relative`}>
                         
-                        {/* 1. Sticker Rendering */}
-                        {msg.stickerCode ? (
-                          <div className="p-3.5 text-center flex flex-col items-center">
-                            <div className="relative group/sticker">
-                              <span className="text-6xl sm:text-7xl select-none block drop-shadow-2xl hover:scale-110 transition-transform duration-200 cursor-pointer">
-                                {msg.stickerCode}
-                              </span>
-                              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-10 h-2 bg-[#D4AF37]/30 blur-sm rounded-full" />
-                            </div>
-                            <span className={`text-[11px] font-bold mt-2 px-2.5 py-0.5 rounded-full ${
-                              isMe 
-                                ? 'bg-black/15 text-black' 
-                                : 'bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/40'
-                            }`}>
-                              {msg.content}
-                            </span>
-                          </div>
-                        ) : msg.mediaType === 'image' || msg.mediaUrl ? (
-                          /* 2. Photo / Image Rendering with Lightbox trigger */
-                          <div className="space-y-1.5">
-                            <div 
-                              onClick={() => msg.mediaUrl && setActiveLightboxImage(msg.mediaUrl)}
-                              className="relative rounded-xl overflow-hidden cursor-pointer group/img max-h-72 border border-black/20"
-                            >
-                              <img 
-                                src={msg.mediaUrl} 
-                                alt="Shared photograph" 
-                                className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
-                              />
-                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
-                                <span className="px-3 py-1.5 rounded-full bg-black/70 text-white text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm">
-                                  <Maximize2 className="w-3.5 h-3.5 text-[#D4AF37]" /> View Full Photo
+                        {/* Incoming partner identity crest & name */}
+                        {!isMe && (
+                          <div className="flex items-center gap-1.5 mb-1 pl-1">
+                            <div className="w-5 h-5 rounded-full overflow-hidden border border-[#D4AF37]/50 bg-black flex items-center justify-center shrink-0">
+                              {getParticipantPhoto(activeConv.participant) ? (
+                                <img src={getParticipantPhoto(activeConv.participant)} alt={activeConv.participant.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-[9px] font-serif font-bold text-[#D4AF37]">
+                                  {activeConv.participant.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'KM'}
                                 </span>
-                              </div>
+                              )}
                             </div>
-                            {msg.content && msg.content !== 'Shared a photograph' && msg.content !== 'Shared a photo' && (
-                              <p className={`text-xs px-2 pt-1 font-medium ${isMe ? 'text-black/90' : 'text-white/90'}`}>
-                                {msg.content}
-                              </p>
-                            )}
+                            <span className="text-[11px] font-semibold text-white/70">{activeConv.participant.name}</span>
                           </div>
-                        ) : msg.isVoiceNote ? (
-                          /* 3. Voice Note */
-                          <div className="flex items-center gap-3 pr-2 min-w-[200px] p-2">
-                            <button 
+                        )}
+
+                        {/* Floating Luxury Emoji Quick Bar */}
+                        <div className={`opacity-0 group-hover:opacity-100 transition-opacity absolute -top-8 ${isMe ? 'right-2' : 'left-2'} z-20 flex items-center gap-1 bg-[#14141E] border border-[#D4AF37]/50 rounded-full px-2.5 py-1 shadow-2xl backdrop-blur-md max-w-[280px] sm:max-w-none overflow-x-auto no-scrollbar`}>
+                          {EMOJI_REACTIONS.map(emoji => (
+                            <button
+                              key={emoji}
                               type="button"
-                              onClick={() => toggleAudioPlay(msg.id)}
-                              className={`w-9 h-9 rounded-full flex items-center justify-center transition-transform hover:scale-105 ${
-                                isMe ? 'bg-black text-[#D4AF37]' : 'bg-[#D4AF37] text-black'
-                              }`}
+                              onClick={() => handleReactToMessage(msg.id, emoji)}
+                              className="hover:scale-135 active:scale-95 transition-transform text-xs p-1"
+                              title={`React with ${emoji}`}
                             >
-                              {playingAudioId === msg.id ? (
-                                <Pause className="w-4 h-4 fill-current" />
-                              ) : (
-                                <Play className="w-4 h-4 fill-current ml-0.5" />
-                              )}
+                              {emoji}
                             </button>
+                          ))}
+                        </div>
 
-                            <div className="flex-1">
-                              <div className="h-1.5 bg-black/20 rounded-full w-32 overflow-hidden relative">
-                                <div 
-                                  className={`h-full transition-all duration-200 ${isMe ? 'bg-black' : 'bg-[#D4AF37]'}`}
-                                  style={{ width: playingAudioId === msg.id ? `${audioProgress}%` : '40%' }}
-                                />
+                        {/* Message Bubble with Double-Tap to Like */}
+                        <div 
+                          onClick={(e) => handleMessageBubbleClick(e, msg)}
+                          className={`max-w-md rounded-2xl text-sm leading-relaxed relative cursor-pointer select-none transition-transform active:scale-[0.99] ${
+                            isMe 
+                              ? 'gold-gradient-bg text-black font-medium rounded-br-none shadow-md' 
+                              : 'glass-panel text-white rounded-bl-none border-white/10 shadow-md'
+                          } ${msg.mediaType === 'image' || msg.stickerCode ? 'p-2' : 'p-4'}`}
+                        >
+                          {/* Floating Heart Reaction Animation on Double-Tap */}
+                          {floatingHeart && (
+                            <div 
+                              style={{ left: floatingHeart.x, top: floatingHeart.y }} 
+                              className="absolute pointer-events-none z-30 -translate-x-1/2 -translate-y-1/2 animate-bounce"
+                            >
+                              <Heart className="w-10 h-10 fill-rose-500 text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.9)]" />
+                            </div>
+                          )}
+
+                          {/* 1. Sticker Rendering */}
+                          {msg.stickerCode ? (
+                            <div className="p-3.5 text-center flex flex-col items-center">
+                              <div className="relative group/sticker">
+                                <span className="text-6xl sm:text-7xl select-none block drop-shadow-2xl hover:scale-110 transition-transform duration-200 cursor-pointer">
+                                  {msg.stickerCode}
+                                </span>
+                                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-10 h-2 bg-[#D4AF37]/30 blur-sm rounded-full" />
                               </div>
-                              <span className={`text-[10px] block mt-1 ${isMe ? 'text-black/70' : 'text-white/60'}`}>
-                                {playingAudioId === msg.id ? 'Playing audio note...' : `Audio Note (${msg.voiceDuration || '0:18'})`}
+                              <span className={`text-[11px] font-bold mt-2 px-2.5 py-0.5 rounded-full ${
+                                isMe 
+                                  ? 'bg-black/15 text-black' 
+                                  : 'bg-[#D4AF37]/20 text-[#D4AF37] border border-[#D4AF37]/40'
+                              }`}>
+                                {msg.content}
                               </span>
                             </div>
-                          </div>
-                        ) : (msg.mediaType === 'call_log' || msg.content.startsWith('📞') || msg.content.startsWith('📹') || msg.content.toLowerCase().includes('call ended') || msg.content.toLowerCase().includes('video date ended')) ? (
-                          /* 4. In-Chat Call Log Card */
-                          <div className="flex items-center gap-3 py-1.5 px-2 min-w-[220px] sm:min-w-[260px]">
-                            <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-inner ${
-                              isMe 
-                                ? 'bg-black/25 text-[#1a1810] border border-black/20' 
-                                : 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/35'
-                            }`}>
-                              {msg.callType === 'voice' || msg.content.includes('Voice') || msg.content.startsWith('📞') ? (
-                                <Phone className="w-5 h-5 fill-current/20" />
-                              ) : (
-                                <Video className="w-5 h-5 fill-current/20" />
+                          ) : msg.mediaType === 'image' || msg.mediaUrl ? (
+                            /* 2. Photo / Image Rendering with Lightbox trigger */
+                            <div className="space-y-1.5">
+                              <div 
+                                onClick={(e) => { e.stopPropagation(); msg.mediaUrl && setActiveLightboxImage(msg.mediaUrl); }}
+                                className="relative rounded-xl overflow-hidden cursor-pointer group/img max-h-72 border border-black/20"
+                              >
+                                <img 
+                                  src={msg.mediaUrl} 
+                                  alt="Shared photograph" 
+                                  className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-300"
+                                />
+                                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center">
+                                  <span className="px-3 py-1.5 rounded-full bg-black/70 text-white text-xs font-semibold flex items-center gap-1.5 backdrop-blur-sm">
+                                    <Maximize2 className="w-3.5 h-3.5 text-[#D4AF37]" /> View Full Photo
+                                  </span>
+                                </div>
+                              </div>
+                              {msg.content && msg.content !== 'Shared a photograph' && msg.content !== 'Shared a photo' && (
+                                <p className={`text-xs px-2 pt-1 font-medium ${isMe ? 'text-black/90' : 'text-white/90'}`}>
+                                  {msg.content}
+                                </p>
                               )}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`text-xs font-serif font-bold truncate ${isMe ? 'text-black' : 'text-white'}`}>
-                                  {msg.callType === 'voice' || msg.content.includes('Voice') || msg.content.startsWith('📞') ? 'HD Voice Call' : '4K Video Date'}
+                          ) : msg.isVoiceNote ? (
+                            /* 3. Luxury Audio Note with Dynamic Equalizer Bars */
+                            <div className="flex items-center gap-3 pr-2 min-w-[220px] p-1.5">
+                              <button 
+                                type="button" 
+                                onClick={(e) => { e.stopPropagation(); toggleAudioPlay(msg.id); }}
+                                className={`w-9 h-9 rounded-full flex items-center justify-center transition-transform hover:scale-105 shrink-0 shadow-md ${
+                                  isMe ? 'bg-black text-[#D4AF37]' : 'bg-[#D4AF37] text-black'
+                                }`}
+                              >
+                                {playingAudioId === msg.id ? (
+                                  <Pause className="w-4 h-4 fill-current" />
+                                ) : (
+                                  <Play className="w-4 h-4 fill-current ml-0.5" />
+                                )}
+                              </button>
+
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-0.5 h-6">
+                                  {[40, 75, 30, 90, 60, 100, 45, 80, 55, 95, 65, 35].map((h, barIdx) => {
+                                    const isPlaying = playingAudioId === msg.id;
+                                    const barPercent = ((barIdx + 1) / 12) * 100;
+                                    const isPassed = audioProgress >= barPercent;
+                                    return (
+                                      <div
+                                        key={barIdx}
+                                        className={`w-1 rounded-full transition-all duration-150 ${
+                                          isPassed
+                                            ? (isMe ? 'bg-black' : 'bg-[#D4AF37]')
+                                            : (isMe ? 'bg-black/25' : 'bg-white/20')
+                                        }`}
+                                        style={{
+                                          height: isPlaying 
+                                            ? `${Math.max(25, (h * (barIdx % 2 === 0 ? 1.2 : 0.8)))}%` 
+                                            : `${h}%`
+                                        }}
+                                      />
+                                    );
+                                  })}
+                                </div>
+                                <span className={`text-[10px] block mt-0.5 font-medium ${isMe ? 'text-black/70' : 'text-white/60'}`}>
+                                  {playingAudioId === msg.id ? `Playing (${Math.round((audioProgress / 100) * 18)}s)` : `Encrypted Audio (${msg.voiceDuration || '0:18'})`}
                                 </span>
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className={`text-[10px] font-semibold tracking-wide ${isMe ? 'text-black/85' : 'text-emerald-400'}`}>
-                                  {msg.callDuration || (msg.content.includes('•') ? msg.content.split('•')[1]?.trim() : msg.content.includes('(') ? msg.content.split('(')[1]?.replace(')', '') : 'Completed')}
-                                </span>
-                                <span className={`text-[9px] ${isMe ? 'text-black/40' : 'text-white/40'}`}>•</span>
-                                <span className={`text-[10px] ${isMe ? 'text-black/60' : 'text-white/50'}`}>{msg.timestamp}</span>
                               </div>
                             </div>
-                          </div>
-                        ) : (
-                          /* 5. Text Content */
-                          msg.content
-                        )}
+                          ) : (msg.mediaType === 'call_log' || msg.content.startsWith('📞') || msg.content.startsWith('📹') || msg.content.toLowerCase().includes('call ended') || msg.content.toLowerCase().includes('video date ended')) ? (
+                            /* 4. Archived Dispatch Record (No call buttons) */
+                            <div className="flex items-center gap-2.5 py-1 px-2 text-xs">
+                              <Sparkles className={`w-4 h-4 shrink-0 ${isMe ? 'text-black/70' : 'text-[#D4AF37]'}`} />
+                              <div className="flex-1 min-w-0">
+                                <span className={`font-semibold block truncate ${isMe ? 'text-black' : 'text-white'}`}>
+                                  {msg.content.replace(/📞|📹/g, '').trim() || 'Private Dispatch Completed'}
+                                </span>
+                                <span className={`text-[10px] ${isMe ? 'text-black/60' : 'text-white/50'}`}>
+                                  {msg.callDuration || 'Completed'} • {msg.timestamp}
+                                </span>
+                              </div>
+                            </div>
+                          ) : (
+                            /* 5. Text Content */
+                            msg.content
+                          )}
 
-                        {/* Reaction Badges on Corner */}
-                        {msg.reactions && msg.reactions.length > 0 && (
-                          <div className={`absolute -bottom-3 ${isMe ? 'right-3' : 'left-3'} flex items-center gap-1 bg-[#101018] border border-[#D4AF37]/50 rounded-full px-2 py-0.5 shadow-md z-10`}>
-                            {msg.reactions.map((r, ri) => (
-                              <button
-                                key={ri}
-                                onClick={() => handleReactToMessage(msg.id, r.emoji)}
-                                className="flex items-center gap-1 text-[10px] hover:scale-110 transition-transform"
-                                title="Click to toggle reaction"
-                              >
-                                <span>{r.emoji}</span>
-                                {r.count > 1 && <span className="text-[9px] font-bold text-white">{r.count}</span>}
-                              </button>
-                            ))}
-                          </div>
-                        )}
+                          {/* Reaction Badges on Corner */}
+                          {msg.reactions && msg.reactions.length > 0 && (
+                            <div className={`absolute -bottom-3 ${isMe ? 'right-3' : 'left-3'} flex items-center gap-1 bg-[#101018] border border-[#D4AF37]/50 rounded-full px-2 py-0.5 shadow-md z-10`}>
+                              {msg.reactions.map((r, ri) => (
+                                <button
+                                  key={ri}
+                                  onClick={(e) => { e.stopPropagation(); handleReactToMessage(msg.id, r.emoji); }}
+                                  className="flex items-center gap-1 text-[10px] hover:scale-110 transition-transform"
+                                  title="Click to toggle reaction"
+                                >
+                                  <span>{r.emoji}</span>
+                                  {r.count > 1 && <span className="text-[9px] font-bold text-white">{r.count}</span>}
+                                </button>
+                              ))}
+                            </div>
+                          )}
 
+                        </div>
+                        
+                        {/* Timestamp & Read Receipts */}
+                        <div className="flex items-center gap-1.5 text-[10px] text-white/40 mt-1.5 px-1">
+                          <span>{msg.timestamp}</span>
+                          {isMe && (
+                            <CheckCheck className={`w-3.5 h-3.5 ${msg.read ? 'text-[#D4AF37]' : 'text-white/40'}`} />
+                          )}
+                        </div>
                       </div>
-                      
-                      {/* Timestamp & Read Receipts */}
-                      <div className="flex items-center gap-1.5 text-[10px] text-white/40 mt-1.5 px-1">
-                        <span>{msg.timestamp}</span>
-                        {isMe && (
-                          <CheckCheck className={`w-3.5 h-3.5 ${msg.read ? 'text-[#D4AF37]' : 'text-white/40'}`} />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
 
                 {isTyping && (
                   <div className="flex items-center gap-2 text-xs text-[#D4AF37] italic bg-white/[0.02] border border-white/5 rounded-full px-4 py-2 w-fit">
@@ -1929,6 +2267,101 @@ function MessagesContent() {
               ) : (
                 /* 4. ACTIVE CHAT COMPOSER WITH STICKERS & PHOTO SHARING */
                 <>
+                  {/* 1-TAP LUXURY ICEBREAKERS TOOLBAR */}
+                  <div className="px-3 py-2 bg-[#09090e] border-t border-white/5 flex items-center gap-2 overflow-x-auto no-scrollbar shrink-0">
+                    <div className="flex items-center gap-1 shrink-0 pr-1 text-[#D4AF37]">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider hidden sm:inline">Icebreakers</span>
+                    </div>
+                    {ICEBREAKER_PROMPTS.map(ib => (
+                      <button
+                        key={ib.id}
+                        type="button"
+                        onClick={() => handleSendIcebreaker(ib)}
+                        className="shrink-0 px-3 py-1 rounded-full bg-white/[0.04] hover:bg-[#D4AF37]/20 border border-white/10 hover:border-[#D4AF37]/60 text-white/80 hover:text-white text-xs transition-all flex items-center gap-1.5 active:scale-95 shadow-sm group cursor-pointer"
+                        title={ib.text}
+                      >
+                        <span>{ib.emoji}</span>
+                        <span className="group-hover:text-[#D4AF37] transition-colors">{ib.topic}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* LUXURY CHARM & WINGMAN OPENERS DRAWER */}
+                  <AnimatePresence>
+                    {isCharmDrawerOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 10 }}
+                        className="p-4 bg-[#101018] border-t border-[#D4AF37]/40 shadow-2xl relative"
+                      >
+                        <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-[#D4AF37]/20 flex items-center justify-center text-[#D4AF37]">
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </div>
+                            <span className="text-xs font-serif font-bold text-white tracking-wide">
+                              Curated Charm & Flirt Wingman
+                            </span>
+                            <span className="text-[10px] text-white/40 hidden sm:inline">Tap any line to insert into message</span>
+                          </div>
+
+                          <button 
+                            type="button" 
+                            onClick={() => setIsCharmDrawerOpen(false)}
+                            className="text-white/40 hover:text-white p-1 rounded-full hover:bg-white/10"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        {/* Charm Category Filter */}
+                        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-2 mb-2.5">
+                          {[
+                            { id: 'flirty', label: '🫦 Flirty & Sultry' },
+                            { id: 'luxe', label: '🥂 High Roller VIP' },
+                            { id: 'cheeky', label: '😏 Cheeky & Witty' },
+                            { id: 'intrigue', label: '💭 Deep & Intriguing' }
+                          ].map(tab => (
+                            <button
+                              key={tab.id}
+                              type="button"
+                              onClick={() => setCharmCategory(tab.id as any)}
+                              className={`shrink-0 px-3 py-1 rounded-full text-[11px] font-semibold transition-all ${
+                                charmCategory === tab.id
+                                  ? 'bg-[#D4AF37] text-black font-bold shadow-md'
+                                  : 'bg-white/5 text-white/60 hover:text-white border border-white/5'
+                              }`}
+                            >
+                              {tab.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {/* Charm Lines Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
+                          {CHARM_LINES.filter(c => c.category === charmCategory).map(item => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => handleSelectCharmLine(item.line)}
+                              className="p-2.5 rounded-xl bg-white/[0.03] hover:bg-[#D4AF37]/15 border border-white/5 hover:border-[#D4AF37]/40 text-left transition-all group flex flex-col gap-1 active:scale-[0.98] cursor-pointer"
+                            >
+                              <span className="text-[10px] font-bold text-[#D4AF37] uppercase tracking-wider flex items-center justify-between">
+                                <span>{item.label}</span>
+                                <span className="text-[9px] text-white/40 opacity-0 group-hover:opacity-100 transition-opacity">Insert ↵</span>
+                              </span>
+                              <p className="text-xs text-white/90 leading-snug font-sans group-hover:text-white">
+                                "{item.line}"
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
                   {/* LUXURY STICKERS & EMOJIS DRAWER POPUP */}
                   <AnimatePresence>
                     {isStickerDrawerOpen && (
@@ -2234,14 +2667,32 @@ function MessagesContent() {
                       <Smile className="w-4 h-4 sm:w-5 sm:h-5" />
                     </button>
 
-                    {/* Send Bespoke Gift Button (Desktop) */}
+                    {/* Send Bespoke Gift Button */}
                     <button 
                       type="button" 
                       onClick={() => { setModalTab('gifting'); setModalOpen(true); }}
-                      className="hidden sm:flex p-2 text-[#D4AF37] hover:bg-[#D4AF37]/20 rounded-full transition-colors shrink-0"
+                      className="p-2 text-[#D4AF37] hover:bg-[#D4AF37]/20 rounded-full transition-colors shrink-0"
                       title="Send Bespoke Luxury Gift"
                     >
                       <Gift className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </button>
+
+                    {/* Curated Charm & Wingman Helper */}
+                    <button 
+                      type="button" 
+                      onClick={() => { 
+                        setIsCharmDrawerOpen(!isCharmDrawerOpen);
+                        setIsStickerDrawerOpen(false);
+                        setIsImageVaultOpen(false);
+                      }}
+                      className={`p-2 rounded-full transition-all shrink-0 ${
+                        isCharmDrawerOpen 
+                          ? 'text-[#D4AF37] bg-[#D4AF37]/25 shadow-[0_0_12px_rgba(212,175,55,0.4)]' 
+                          : 'text-amber-400/80 hover:text-[#D4AF37] hover:bg-white/5'
+                      }`}
+                      title="Charm Lines & Openers"
+                    >
+                      <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />
                     </button>
 
                     <input

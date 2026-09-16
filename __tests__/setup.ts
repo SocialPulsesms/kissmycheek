@@ -1,7 +1,4 @@
-import { resetCallSignalingStore } from '@/lib/callSignalingStore';
-import { resetCallHistoryStore } from '@/lib/callHistoryStore';
-
+// Global test setup
 beforeEach(() => {
-  resetCallSignalingStore();
-  resetCallHistoryStore();
+  // Test cleanup
 });

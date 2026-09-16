@@ -24,7 +24,6 @@ export const metadata: Metadata = {
 };
 
 import { SplashScreen } from "@/components/ui/SplashScreen";
-import { GlobalCallManager } from "@/components/call/GlobalCallManager";
 import { AppBackButtonHandler } from "@/components/ui/AppBackButtonHandler";
 import { InactivityManager } from "@/components/ui/InactivityManager";
 
@@ -39,7 +38,6 @@ export default function RootLayout({
         <AppBackButtonHandler />
         <InactivityManager />
         <SplashScreen />
-        <GlobalCallManager />
         {children}
       </body>
     </html>

@@ -9,7 +9,6 @@
     "lint": "eslint",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:calls": "jest --testPathPattern=calls",
     "postinstall": "prisma generate",
     "deploy": "bash deploy.sh",
     "deploy:fix": "bash fix-server.sh"
