@@ -1825,7 +1825,7 @@ function MessagesContent() {
               
               {/* Active Conversation Header */}
               <div className="px-3 py-2.5 sm:px-4 sm:py-3 border-b border-white/10 flex items-center justify-between bg-black/40 backdrop-blur-md shrink-0 gap-2">
-                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1 overflow-hidden">
                   <button
                     type="button"
                     onClick={handleCloseActiveConversation}
@@ -1839,10 +1839,10 @@ function MessagesContent() {
                       <img
                         src={getParticipantPhoto(activeConv.participant)}
                         alt={activeConv.participant.name}
-                        className="w-10 h-10 rounded-full object-cover border border-[#D4AF37] shadow-md"
+                        className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover border border-[#D4AF37] shadow-md"
                       />
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1E1B13] to-black border border-[#D4AF37] flex items-center justify-center text-[#D4AF37] font-serif font-bold text-sm shadow-md">
+                      <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-[#1E1B13] to-black border border-[#D4AF37] flex items-center justify-center text-[#D4AF37] font-serif font-bold text-sm shadow-md">
                         {(activeConv.participant.name || 'M').charAt(0).toUpperCase()}
                       </div>
                     )}
@@ -1851,12 +1851,15 @@ function MessagesContent() {
                     )}
                   </div>
 
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <h3 className="font-serif font-bold text-white text-sm sm:text-base truncate">
                         {activeConv.participant.name}
                       </h3>
-                      <Badge type="verified" label="Verified" />
+                      <span title="Verified Member" className="shrink-0 inline-flex items-center text-[#D4AF37]">
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                      </span>
+                      <Badge type="verified" label="Verified" className="hidden md:inline-flex shrink-0 py-0.5 px-2 text-[10px]" />
                     </div>
                     <span className="text-[10px] sm:text-[11px] text-white/50 block truncate">
                       {activeConv.participant.occupation || 'Member'} • {activeConv.participant.location || 'London'}
@@ -1865,7 +1868,7 @@ function MessagesContent() {
                 </div>
 
                 {/* Interactive Chat Actions Suite */}
-                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <div className="flex items-center gap-1 sm:gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => startInAppCall({
@@ -1874,10 +1877,10 @@ function MessagesContent() {
                       partnerPhoto: getParticipantPhoto(activeConv.participant) || undefined,
                       mode: 'video'
                     })}
-                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#D4AF37]/15 hover:bg-[#D4AF37] border border-[#D4AF37]/40 text-[#D4AF37] hover:text-black transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer"
+                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#D4AF37]/15 hover:bg-[#D4AF37] border border-[#D4AF37]/40 text-[#D4AF37] hover:text-black transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer shrink-0"
                     title="Start video date"
                   >
-                    <Video className="w-4 h-4" />
+                    <Video className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </button>
                   {/* In-Chat Search Button */}
                   <button
@@ -1886,17 +1889,17 @@ function MessagesContent() {
                       setIsChatSearchOpen(!isChatSearchOpen);
                       if (isChatSearchOpen) setChatSearchTerm('');
                     }}
-                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full border transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer ${
+                    className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full border transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer shrink-0 ${
                       isChatSearchOpen
                         ? 'bg-[#D4AF37] text-black border-[#D4AF37]'
                         : 'bg-white/5 hover:bg-white/10 border-white/10 text-white/70 hover:text-white'
                     }`}
                     title="Search within conversation"
                   >
-                    <Search className="w-4 h-4" />
+                    <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </button>
 
-                  {/* Sound FX Toggle Button */}
+                  {/* Sound FX Toggle Button - hidden on small mobile to give room for actions */}
                   <button
                     type="button"
                     onClick={() => {
@@ -1907,33 +1910,33 @@ function MessagesContent() {
                       }
                       if (next) playLuxurySound('pop');
                     }}
-                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full border transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer ${
+                    className={`hidden sm:flex w-8 h-8 sm:w-10 sm:h-10 rounded-full border transition-all items-center justify-center shadow-md active:scale-95 cursor-pointer shrink-0 ${
                       soundEnabled
                         ? 'bg-[#D4AF37]/10 hover:bg-[#D4AF37]/25 border-[#D4AF37]/30 text-[#D4AF37]'
                         : 'bg-white/5 hover:bg-white/10 border-white/10 text-white/35 hover:text-white/60'
                     }`}
                     title={soundEnabled ? 'Sensory Sound: On' : 'Sensory Sound: Muted'}
                   >
-                    {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                    {soundEnabled ? <Volume2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <VolumeX className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
                   </button>
 
                   {/* Send VIP Gift Button */}
                   <button
                     type="button"
                     onClick={() => { setModalTab('gifting'); setModalOpen(true); }}
-                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-gradient-to-r from-amber-500/20 to-rose-500/20 hover:from-amber-500/30 hover:to-rose-500/30 border border-[#D4AF37]/40 text-[#D4AF37] transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer"
+                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-r from-amber-500/20 to-rose-500/20 hover:from-amber-500/30 hover:to-rose-500/30 border border-[#D4AF37]/40 text-[#D4AF37] transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer shrink-0"
                     title="Send Bespoke VIP Gift"
                   >
-                    <Gift className="w-4 h-4 text-[#D4AF37]" />
+                    <Gift className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#D4AF37]" />
                   </button>
 
                   {/* View Member Profile */}
                   <Link
                     href={`/profile/${activeConv.participant.id}`}
-                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all flex items-center justify-center shadow-md active:scale-95"
+                    className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-white/70 hover:text-white transition-all flex items-center justify-center shadow-md active:scale-95 shrink-0"
                     title="View Full Profile"
                   >
-                    <ExternalLink className="w-4 h-4" />
+                    <ExternalLink className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   </Link>
                 </div>
               </div>
