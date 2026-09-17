@@ -66,6 +66,10 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Kiss My Cheek uses your camera for live identity checks and optional video dates.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Kiss My Cheek uses your microphone for voice notes and optional video dates.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

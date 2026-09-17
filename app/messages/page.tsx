@@ -16,6 +16,7 @@ import {
   Pause,
   Volume2,
   VolumeX,
+  Video,
   Image as ImageIcon,
   ShieldCheck,
   ShieldAlert,
@@ -47,6 +48,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Navigation } from '@/components/ui/Navigation';
 import { ConversationThread, ChatMessage, MessageReaction } from '@/lib/mockData';
 import { CreditsAndGiftingModal } from '@/components/ui/CreditsAndGiftingModal';
+import { startInAppCall } from '@/components/call/CallSessionManager';
 import { BespokeGift } from '@/lib/creditsStore';
 
 // Initialized conversations starting empty for live platform
@@ -1864,6 +1866,19 @@ function MessagesContent() {
 
                 {/* Interactive Chat Actions Suite */}
                 <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => startInAppCall({
+                      partnerId: activeConv.participant.id,
+                      partnerName: activeConv.participant.name,
+                      partnerPhoto: getParticipantPhoto(activeConv.participant) || undefined,
+                      mode: 'video'
+                    })}
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#D4AF37]/15 hover:bg-[#D4AF37] border border-[#D4AF37]/40 text-[#D4AF37] hover:text-black transition-all flex items-center justify-center shadow-md active:scale-95 cursor-pointer"
+                    title="Start video date"
+                  >
+                    <Video className="w-4 h-4" />
+                  </button>
                   {/* In-Chat Search Button */}
                   <button
                     type="button"

@@ -36,6 +36,12 @@ export function InactivityManager() {
         const elapsed = Date.now() - lastActive;
 
         if (elapsed >= INACTIVITY_LIMIT_MS) {
+          try {
+            if (sessionStorage.getItem('kmc_in_call') === '1') {
+              updateLastActive();
+              return;
+            }
+          } catch {}
           console.warn('[Security] User inactive for > 10 minutes. Triggering automatic logout.');
           localStorage.removeItem(STORAGE_KEY);
           performLogout();

@@ -26,6 +26,7 @@ export const metadata: Metadata = {
 import { SplashScreen } from "@/components/ui/SplashScreen";
 import { AppBackButtonHandler } from "@/components/ui/AppBackButtonHandler";
 import { InactivityManager } from "@/components/ui/InactivityManager";
+import { CallSessionManager } from "@/components/call/CallSessionManager";
 
 export default function RootLayout({
   children,
@@ -37,6 +38,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-[#070709] text-[#F4F4F6] font-sans antialiased selection:bg-[#D4AF37] selection:text-black flex flex-col" suppressHydrationWarning>
         <AppBackButtonHandler />
         <InactivityManager />
+        <CallSessionManager />
         <SplashScreen />
         {children}
       </body>
