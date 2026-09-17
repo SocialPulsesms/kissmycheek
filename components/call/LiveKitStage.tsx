@@ -84,7 +84,10 @@ export function LiveKitStage({
           setStatus(partnerName || 'Connected');
         });
 
-        await room.connect(serverUrl, token);
+        const connectTimeout = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Timed out reaching the video server')), 20000);
+        });
+        await Promise.race([room.connect(serverUrl, token), connectTimeout]);
         if (cancelled) {
           await room.disconnect();
           return;

@@ -11,6 +11,30 @@ if (ini_get('zlib.output_compression')) {
 
 $target_host = 'http://127.0.0.1:3000';
 $request_uri = $_SERVER['REQUEST_URI'];
+$request_path = parse_url($request_uri, PHP_URL_PATH) ?: '/';
+
+// LiveKit health must work even if the Next.js build is missing /api/livekit/health
+if ($request_path === '/api/livekit' || $request_path === '/api/livekit/health' || $request_path === '/api/livekit/health/') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    $errno = 0;
+    $errstr = '';
+    $fp = @fsockopen('127.0.0.1', 7880, $errno, $errstr, 1.5);
+    $listening = is_resource($fp);
+    if ($listening) {
+        fclose($fp);
+    }
+    http_response_code(200);
+    echo json_encode([
+        'ok' => $listening,
+        'livekitProcessListening' => $listening,
+        'publicUrlConfigured' => null,
+        'publicUrl' => null,
+        'source' => 'origin-php-health'
+    ]);
+    exit;
+}
+
 $url = $target_host . $request_uri;
 $method = $_SERVER['REQUEST_METHOD'];
 

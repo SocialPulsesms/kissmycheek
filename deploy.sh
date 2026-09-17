@@ -109,11 +109,16 @@ HTACCESS
     pm2 start npm --name "kissmycheek" -- start
     pm2 save || true
   fi
+
+  echo "Verifying LiveKit health endpoint..."
+  chmod +x scripts/verify-livekit-production.sh 2>/dev/null || true
+  bash scripts/verify-livekit-production.sh || echo "⚠️ LiveKit verify reported issues (site still deployed)."
 EOF
 
 echo "========================================================"
 echo "✅ Deployment Successful!"
 echo "🌐 Website: https://kissmycheek.org (or http://${SERVER_IP})"
 echo "👑 Admin Portal: https://kissmycheek.org/admin/login"
-echo "📞 LiveKit: PM2 process kmc-livekit — signaling wss://kissmycheek.org  media UDP 50000-50100 on origin"
+echo "📞 LiveKit: PM2 kmc-livekit (localhost:7880) + kmc-livekit-wss (public wss://kissmycheek.org:8443)"
+echo "    Health: https://kissmycheek.org/api/livekit/health"
 echo "========================================================"

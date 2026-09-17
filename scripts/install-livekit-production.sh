@@ -53,6 +53,13 @@ ENV
   chmod 600 "$KEYS_ENV"
 fi
 
+# Always publish signaling over Cloudflare-friendly HTTPS port 8443
+if grep -q '^NEXT_PUBLIC_LIVEKIT_URL=' "$KEYS_ENV"; then
+  sed -i.bak "s|^NEXT_PUBLIC_LIVEKIT_URL=.*|NEXT_PUBLIC_LIVEKIT_URL=wss://${DOMAIN}:8443|" "$KEYS_ENV"
+else
+  echo "NEXT_PUBLIC_LIVEKIT_URL=wss://${DOMAIN}:8443" >> "$KEYS_ENV"
+fi
+
 # shellcheck disable=SC1090
 set -a
 . "$KEYS_ENV"
@@ -112,6 +119,20 @@ if pm2 describe kmc-livekit >/dev/null 2>&1; then
   pm2 restart kmc-livekit --update-env
 else
   pm2 start "$BIN" --name kmc-livekit -- --config "$CONFIG"
+fi
+
+PROXY_JS="$WEB_ROOT/scripts/livekit-wss-proxy.js"
+if [ -f "$PROXY_JS" ]; then
+  export KMC_DOMAIN="$DOMAIN"
+  export LIVEKIT_LOCAL_PORT=7880
+  export LIVEKIT_WSS_PORT=8443
+  if pm2 describe kmc-livekit-wss >/dev/null 2>&1; then
+    pm2 restart kmc-livekit-wss --update-env
+  else
+    pm2 start "$PROXY_JS" --name kmc-livekit-wss --interpreter node
+  fi
+else
+  echo "WSS proxy script missing at $PROXY_JS"
 fi
 pm2 save || true
 
