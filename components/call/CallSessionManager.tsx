@@ -36,6 +36,7 @@ interface IncomingCall {
 async function postCall(body: Record<string, unknown>) {
   const res = await fetch('/api/calls', {
     method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
@@ -51,6 +52,19 @@ export function CallSessionManager() {
   const [incoming, setIncoming] = useState<IncomingCall | null>(null);
   const [notice, setNotice] = useState('');
   const activeRoomRef = useRef<string | null>(null);
+  const meIdsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const ids = [data?.user?.id, data?.id, data?.user?.email, data?.email]
+          .map((v: unknown) => String(v || '').trim())
+          .filter(Boolean);
+        meIdsRef.current = Array.from(new Set(ids));
+      })
+      .catch(() => {});
+  }, []);
 
   const leaveCall = useCallback(async (roomName?: string) => {
     const room = roomName || activeRoomRef.current;
@@ -131,26 +145,31 @@ export function CallSessionManager() {
     let timer: ReturnType<typeof setInterval>;
     const poll = async () => {
       if (activeRoomRef.current) return;
-      if (typeof document !== 'undefined' && !document.cookie.includes('session-token=')) return;
       try {
-        const res = await fetch('/api/calls?action=incoming');
+        const extra = meIdsRef.current.filter(Boolean).join(',');
+        const res = await fetch(`/api/calls?action=incoming${extra ? `&ids=${encodeURIComponent(extra)}` : ''}`, {
+          credentials: 'include'
+        });
         if (!res.ok) return;
         const data = await res.json();
         const invite = data.incomingCall;
         if (invite?.roomName && invite.status === 'ringing') {
-          setIncoming({
-            roomName: invite.roomName,
-            callerName: invite.callerName,
-            callerPhoto: invite.callerPhoto,
-            mode: invite.mode || 'video'
+          setIncoming((prev) => {
+            if (prev?.roomName === invite.roomName) return prev;
+            return {
+              roomName: invite.roomName,
+              callerName: invite.callerName,
+              callerPhoto: invite.callerPhoto,
+              mode: invite.mode || 'video'
+            };
           });
         } else if (!activeRoomRef.current) {
-          setIncoming(null);
+          setIncoming((prev) => (prev ? null : prev));
         }
       } catch {}
     };
     poll();
-    timer = setInterval(poll, 2000);
+    timer = setInterval(poll, 1000);
     return () => clearInterval(timer);
   }, [active]);
 
@@ -189,7 +208,7 @@ export function CallSessionManager() {
       )}
 
       {incoming && !active && (
-        <div className="fixed inset-0 z-[88] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
+        <div className="fixed inset-0 z-[100000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
           <div className="w-full max-w-sm rounded-3xl bg-[#101018] border border-[#D4AF37]/40 p-6 text-center shadow-2xl">
             {incoming.callerPhoto ? (
               <img src={incoming.callerPhoto} alt="" className="w-20 h-20 rounded-full object-cover mx-auto border-2 border-[#D4AF37]" />

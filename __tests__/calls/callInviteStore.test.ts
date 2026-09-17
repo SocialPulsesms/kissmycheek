@@ -32,6 +32,20 @@ describe('callInviteStore', () => {
     expect(getIncomingCallForUser('user-b')).toBeNull();
   });
 
+  it('matches a callee by an alternate id', () => {
+    createCallInvite({
+      roomName: 'kmc_a_b',
+      callerId: 'prisma-a',
+      calleeId: 'prisma-b',
+      callerIds: ['prisma-a', 'ada@test.com'],
+      calleeIds: ['prisma-b', 'user_bob', 'bob@test.com'],
+      mode: 'video'
+    });
+    expect(getIncomingCallForUser('bob@test.com')?.roomName).toBe('kmc_a_b');
+    expect(getIncomingCallForUser('user_bob')?.roomName).toBe('kmc_a_b');
+    expect(getIncomingCallForUser('prisma-a')).toBeNull();
+  });
+
   it('rejects status updates from a stranger', () => {
     createCallInvite({
       roomName: 'kmc_a_b',

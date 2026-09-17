@@ -37,6 +37,7 @@ yarn-error.log*
 livekit/*.key
 livekit/*.secret
 .tools/
+.data/persistent_call_invites.json
 
 # vercel
 .vercel

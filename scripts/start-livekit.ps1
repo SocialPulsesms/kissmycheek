@@ -28,6 +28,14 @@ if (-not (Test-Path $ExePath)) {
   Write-Host "Installed: $ExePath"
 }
 
+$inUse = Get-NetTCPConnection -LocalPort 7880 -State Listen -ErrorAction SilentlyContinue
+if ($inUse) {
+  Write-Host "LiveKit is already running on ws://127.0.0.1:7880"
+  Write-Host "Do not start a second copy. Open another terminal and run: npm run dev"
+  Write-Host "One-PC test: two browser windows (normal + Incognito), two member logins, then Messages video button."
+  exit 0
+}
+
 Write-Host "Starting LiveKit in --dev mode (API key: devkey, ws://127.0.0.1:7880)"
 Write-Host "Keep this window open. In another terminal run: npm run dev"
 & $ExePath --dev --bind 0.0.0.0
