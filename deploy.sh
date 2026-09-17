@@ -24,13 +24,25 @@ ssh ${SERVER_USER}@${SERVER_IP} "mkdir -p ${REMOTE_DIR}"
 
 # Step 2: Sync Codebase (Excluding node_modules, .next, and git caches)
 echo "📦 [2/4] Uploading files to ${REMOTE_DIR}..."
-rsync -avz --delete \
-  --exclude 'node_modules' \
-  --exclude '.next' \
-  --exclude '.git' \
-  --exclude 'dist' \
-  --exclude '.DS_Store' \
-  ./ ${SERVER_USER}@${SERVER_IP}:${REMOTE_DIR}/
+# Windows Git Bash has no rsync; the VPS does. Upload a tarball, then rsync on the server.
+if command -v rsync >/dev/null 2>&1; then
+  rsync -avz --delete \
+    --exclude 'node_modules' \
+    --exclude '.next' \
+    --exclude '.git' \
+    --exclude 'dist' \
+    --exclude '.DS_Store' \
+    ./ ${SERVER_USER}@${SERVER_IP}:${REMOTE_DIR}/
+else
+  echo "rsync not on this PC — uploading via tar + ssh, then rsync on the server..."
+  tar -czf - \
+    --exclude=node_modules \
+    --exclude=.next \
+    --exclude=.git \
+    --exclude=dist \
+    --exclude=.DS_Store \
+    . | ssh ${SERVER_USER}@${SERVER_IP} "rm -rf /tmp/kmc-src && mkdir -p /tmp/kmc-src ${REMOTE_DIR} && tar -xzf - -C /tmp/kmc-src && rsync -a --delete --exclude node_modules --exclude .next --exclude dist /tmp/kmc-src/ ${REMOTE_DIR}/ && rm -rf /tmp/kmc-src"
+fi
 
 # Step 3: Install dependencies, Build Next.js & Restart PM2
 echo "⚡ [3/4] Installing dependencies & compiling Next.js build on server..."
