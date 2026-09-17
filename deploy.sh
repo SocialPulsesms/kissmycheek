@@ -85,7 +85,18 @@ HTACCESS
   npm install
   npx prisma generate 2>/dev/null || true
 
-  # Build production bundle
+  echo "Installing / restarting self-hosted LiveKit (PM2: kmc-livekit)..."
+  chmod +x scripts/install-livekit-production.sh 2>/dev/null || true
+  bash scripts/install-livekit-production.sh || echo "⚠️ LiveKit install/restart failed — the website will still deploy."
+  if [ -f "$HOME/kmc-livekit/keys.env" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$HOME/kmc-livekit/keys.env"
+    set +a
+    echo "Using LiveKit URL ${NEXT_PUBLIC_LIVEKIT_URL}"
+  fi
+
+  # Build production bundle (NEXT_PUBLIC_LIVEKIT_URL must exist at build time)
   echo "Building Next.js luxury application..."
   npm run build
 
@@ -104,5 +115,5 @@ echo "========================================================"
 echo "✅ Deployment Successful!"
 echo "🌐 Website: https://kissmycheek.org (or http://${SERVER_IP})"
 echo "👑 Admin Portal: https://kissmycheek.org/admin/login"
-echo "📞 Video dates: run scripts/start-livekit.sh on the VPS and set LIVEKIT_* env vars"
+echo "📞 LiveKit: PM2 process kmc-livekit — signaling wss://kissmycheek.org  media UDP 50000-50100 on origin"
 echo "========================================================"

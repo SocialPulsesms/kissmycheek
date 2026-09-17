@@ -10,6 +10,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "livekit": "powershell -ExecutionPolicy Bypass -File scripts/start-livekit.ps1",
+    "livekit:prod": "bash scripts/install-livekit-production.sh",
     "postinstall": "prisma generate",
     "deploy": "bash deploy.sh",
     "deploy:fix": "bash fix-server.sh"
