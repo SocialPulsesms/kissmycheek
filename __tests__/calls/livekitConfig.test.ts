@@ -8,7 +8,7 @@ describe('createLiveKitJoinToken', () => {
     process.env.LIVEKIT_API_SECRET = prev.LIVEKIT_API_SECRET;
     process.env.NEXT_PUBLIC_LIVEKIT_URL = prev.NEXT_PUBLIC_LIVEKIT_URL;
     process.env.LIVEKIT_URL = prev.LIVEKIT_URL;
-    process.env.NODE_ENV = prev.NODE_ENV;
+    (process.env as Record<string, string | undefined>).NODE_ENV = prev.NODE_ENV;
   });
 
   it('mints a JWT for the requested room', async () => {

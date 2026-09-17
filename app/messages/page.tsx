@@ -414,7 +414,7 @@ const sanitizeMessage = (m: any): ChatMessage | null => {
 const sanitizeThread = (t: any) => {
   if (!t) return t;
   const messages = Array.isArray(t.messages)
-    ? t.messages.map(sanitizeMessage).filter((m): m is ChatMessage => Boolean(m))
+    ? t.messages.map(sanitizeMessage).filter((m: any): m is ChatMessage => Boolean(m))
     : [];
   const lastFromMessages = messages.length > 0 ? messages[messages.length - 1].content : '';
   const lastMessage = isRetiredCallLog({ content: t.lastMessage, mediaType: t.mediaType })
@@ -631,7 +631,7 @@ function MessagesContent() {
 
               if (!existingThread) {
                 const cleaned = sanitizeThread(incomingThread);
-                const hasUnread = (cleaned.messages || []).some(m => !isMessageMe(m) && !m.read);
+                const hasUnread = (cleaned.messages || []).some((m: any) => !isMessageMe(m) && !m.read);
                 threadMap.set(incomingThread.id, {
                   ...cleaned,
                   unreadCount: isActive ? 0 : (hasUnread ? incomingThread.unreadCount : 0)
