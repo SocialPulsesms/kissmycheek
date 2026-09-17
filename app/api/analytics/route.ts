@@ -19,6 +19,9 @@ export async function POST(req: Request) {
     const { action, logRecord, updateData } = body;
 
     if (action === 'log_activity' && logRecord) {
+      if (logRecord.category === 'CALL') {
+        return NextResponse.json({ success: true, ignored: true });
+      }
       const createdLog = logActivityHistoryRecord(logRecord);
       return NextResponse.json({
         success: true,

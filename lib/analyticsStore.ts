@@ -11,7 +11,7 @@ export interface ChartDataPoint {
 export interface ActivityHistoryLog {
   id: string;
   timestamp: string;
-  category: 'MATCH' | 'BILLING' | 'BOOST' | 'CALL' | 'VERIFICATION' | 'EVENT';
+  category: 'MATCH' | 'BILLING' | 'BOOST' | 'VERIFICATION' | 'EVENT';
   title: string;
   description: string;
   actor: string;
@@ -96,9 +96,12 @@ export function getPersistentAnalytics(): AnalyticsDataset {
       if (parsed && parsed.memberGrowth && parsed.revenueFlow) {
         if (Array.isArray(parsed.historyLogs)) {
           parsed.historyLogs = parsed.historyLogs.filter((l: any) => 
+            l.category !== 'CALL' &&
             !String(l.id).startsWith('log-00') && 
             !String(l.description).includes('Alexander Sterling') &&
-            !String(l.description).includes('Chidera Anya')
+            !String(l.description).includes('Chidera Anya') &&
+            !String(l.title).toLowerCase().includes('video date') &&
+            !String(l.title).toLowerCase().includes('voice call')
           );
         }
         return parsed;
@@ -124,6 +127,9 @@ export function savePersistentAnalytics(data: AnalyticsDataset): void {
 }
 
 export function logActivityHistoryRecord(record: Omit<ActivityHistoryLog, 'id'>): ActivityHistoryLog {
+  if ((record as { category?: string }).category === 'CALL') {
+    return { ...record, id: 'ignored' } as ActivityHistoryLog;
+  }
   const dataset = getPersistentAnalytics();
   const newLog: ActivityHistoryLog = {
     ...record,

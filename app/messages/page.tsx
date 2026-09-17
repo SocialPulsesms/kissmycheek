@@ -412,7 +412,7 @@ const sanitizeMessage = (m: any): ChatMessage | null => {
 const sanitizeThread = (t: any) => {
   if (!t) return t;
   const messages = Array.isArray(t.messages)
-    ? t.messages.map(sanitizeMessage).filter(Boolean)
+    ? t.messages.map(sanitizeMessage).filter((m): m is ChatMessage => Boolean(m))
     : [];
   const lastFromMessages = messages.length > 0 ? messages[messages.length - 1].content : '';
   const lastMessage = isRetiredCallLog({ content: t.lastMessage, mediaType: t.mediaType })
@@ -676,6 +676,9 @@ function MessagesContent() {
 
                 threadMap.set(incomingThread.id, {
                   ...incomingThread,
+                  lastMessage: isRetiredCallLog({ content: incomingThread.lastMessage })
+                    ? (allMsgs[allMsgs.length - 1]?.content || existingThread.lastMessage || 'Connection established')
+                    : incomingThread.lastMessage,
                   participant: {
                     ...existingThread.participant,
                     ...incomingThread.participant,
