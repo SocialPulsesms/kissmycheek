@@ -36,6 +36,7 @@ yarn-error.log*
 # local LiveKit / TURN secrets
 livekit/*.key
 livekit/*.secret
+.tools/
 
 # vercel
 .vercel

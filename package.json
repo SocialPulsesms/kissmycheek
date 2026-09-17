@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test": "jest",
     "test:watch": "jest --watch",
-    "livekit": "bash scripts/start-livekit.sh",
+    "livekit": "powershell -ExecutionPolicy Bypass -File scripts/start-livekit.ps1",
     "postinstall": "prisma generate",
     "deploy": "bash deploy.sh",
     "deploy:fix": "bash fix-server.sh"
