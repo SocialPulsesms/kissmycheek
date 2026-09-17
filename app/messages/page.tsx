@@ -392,24 +392,33 @@ const MOCK_SNIPPETS = [
   'performance rehearsal'
 ];
 
-const sanitizeMessage = (m: any): ChatMessage => {
-  if (!m) return m;
-  const content = String(m.content || '');
-  const isActualCall = m.mediaType === 'call_log' || 
-    content.startsWith('📞') || 
-    content.startsWith('📹') || 
-    content.toLowerCase().includes('call ended') || 
-    content.toLowerCase().includes('video date ended');
+const isRetiredCallLog = (m: any): boolean => {
+  if (!m) return false;
+  const content = String(m.content || '').toLowerCase();
+  return m.mediaType === 'call_log' ||
+    content.startsWith('📞') ||
+    content.startsWith('📹') ||
+    content.includes('call ended') ||
+    content.includes('video date ended') ||
+    content.includes('voice call') ||
+    content.includes('video date');
+};
 
-  if (!isActualCall && (m.callType || m.mediaType === 'call_log')) {
-    const copy = { ...m };
-    delete copy.callType;
-    delete copy.callDuration;
-    delete copy.callStatus;
-    if (copy.mediaType === 'call_log') delete copy.mediaType;
-    return copy;
-  }
+const sanitizeMessage = (m: any): ChatMessage | null => {
+  if (!m || isRetiredCallLog(m)) return null;
   return m;
+};
+
+const sanitizeThread = (t: any) => {
+  if (!t) return t;
+  const messages = Array.isArray(t.messages)
+    ? t.messages.map(sanitizeMessage).filter(Boolean)
+    : [];
+  const lastFromMessages = messages.length > 0 ? messages[messages.length - 1].content : '';
+  const lastMessage = isRetiredCallLog({ content: t.lastMessage, mediaType: t.mediaType })
+    ? (lastFromMessages || 'Connection established')
+    : (t.lastMessage || lastFromMessages);
+  return { ...t, messages, lastMessage };
 };
 
 const isRealConversation = (t: any): boolean => {
@@ -448,10 +457,7 @@ function MessagesContent() {
       if (savedThreads) {
         const parsed = JSON.parse(savedThreads);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.filter(isRealConversation).map(t => ({
-            ...t,
-            messages: Array.isArray(t.messages) ? t.messages.map(sanitizeMessage) : []
-          }));
+          return parsed.filter(isRealConversation).map(sanitizeThread);
         }
       }
     } catch {}
@@ -622,9 +628,10 @@ function MessagesContent() {
               const isActive = currentActive && (incomingThread.id === currentActive || incomingThread.id.includes(currentActive));
 
               if (!existingThread) {
-                const hasUnread = (incomingThread.messages || []).some(m => !isMessageMe(m) && !m.read);
+                const cleaned = sanitizeThread(incomingThread);
+                const hasUnread = (cleaned.messages || []).some(m => !isMessageMe(m) && !m.read);
                 threadMap.set(incomingThread.id, {
-                  ...incomingThread,
+                  ...cleaned,
                   unreadCount: isActive ? 0 : (hasUnread ? incomingThread.unreadCount : 0)
                 });
               } else {
@@ -633,6 +640,7 @@ function MessagesContent() {
 
                 incomingThread.messages.forEach((rawIncMsg: any) => {
                   const incMsg = sanitizeMessage(rawIncMsg);
+                  if (!incMsg) return;
                   // Find existing message by id or matching content + timestamp
                   const existingKey = Array.from(msgMap.keys()).find(k => {
                     const m = msgMap.get(k);
@@ -830,10 +838,7 @@ function MessagesContent() {
       if (savedThreads) {
         const parsed = JSON.parse(savedThreads);
         if (Array.isArray(parsed)) {
-          const realThreads = parsed.filter(isRealConversation).map(t => ({
-            ...t,
-            messages: Array.isArray(t.messages) ? t.messages.map(sanitizeMessage) : []
-          }));
+          const realThreads = parsed.filter(isRealConversation).map(sanitizeThread);
           if (realThreads.length > 0) {
             setConversations(realThreads);
           }
@@ -2141,21 +2146,8 @@ function MessagesContent() {
                                 </span>
                               </div>
                             </div>
-                          ) : (msg.mediaType === 'call_log' || msg.content.startsWith('📞') || msg.content.startsWith('📹') || msg.content.toLowerCase().includes('call ended') || msg.content.toLowerCase().includes('video date ended')) ? (
-                            /* 4. Archived Dispatch Record (No call buttons) */
-                            <div className="flex items-center gap-2.5 py-1 px-2 text-xs">
-                              <Sparkles className={`w-4 h-4 shrink-0 ${isMe ? 'text-black/70' : 'text-[#D4AF37]'}`} />
-                              <div className="flex-1 min-w-0">
-                                <span className={`font-semibold block truncate ${isMe ? 'text-black' : 'text-white'}`}>
-                                  {msg.content.replace(/📞|📹/g, '').trim() || 'Private Dispatch Completed'}
-                                </span>
-                                <span className={`text-[10px] ${isMe ? 'text-black/60' : 'text-white/50'}`}>
-                                  {msg.callDuration || 'Completed'} • {msg.timestamp}
-                                </span>
-                              </div>
-                            </div>
                           ) : (
-                            /* 5. Text Content */
+                            /* 4. Text Content */
                             msg.content
                           )}
 

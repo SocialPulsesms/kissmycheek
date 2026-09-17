@@ -218,23 +218,3 @@ model ProfileBoost {
   createdAt       DateTime @default(now())
 }
 
-model CallSession {
-  id         String   @id @default(uuid())
-  callerId   String
-  receiverId String
-  sdpOffer   String?
-  sdpAnswer  String?
-  candidates String?
-  status     String   @default("RINGING")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-}
-
-model CallHistory {
-  id         String   @id @default(uuid())
-  callerId   String
-  receiverId String
-  duration   Int
-  outcome    String   @default("COMPLETED")
-  createdAt  DateTime @default(now())
-}

@@ -431,7 +431,7 @@ export function postMessageToThread(
   content: string, 
   isVoiceNote: boolean = false, 
   mediaUrl?: string,
-  mediaType: 'image' | 'sticker' | 'video' | 'audio' | 'call_log' = 'image',
+  mediaType: 'image' | 'sticker' | 'video' | 'audio' = 'image',
   stickerCode?: string,
   participantData?: {
     id: string;
@@ -447,11 +447,6 @@ export function postMessageToThread(
     id: string;
     name: string;
     photos?: string[];
-  },
-  callData?: {
-    callType?: 'voice' | 'video';
-    callDuration?: string;
-    callStatus?: 'completed' | 'missed' | 'declined';
   }
 ): { userMessage: ChatMessage; updatedThread: ConversationThread } {
   const senderId = actualSenderId || (threadIdOrSenderId.includes('__') ? threadIdOrSenderId.split('__')[0].replace(/^th_/, '') : 'user-me');
@@ -512,9 +507,7 @@ export function postMessageToThread(
   const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
   let displayContent = content;
-  if (mediaType === 'call_log') {
-    displayContent = content || `${callData?.callType === 'voice' ? '📞 Voice Call' : '📹 Video Date'} ended`;
-  } else if (stickerCode) {
+  if (stickerCode) {
     displayContent = content || `Sent a sticker ${stickerCode}`;
   } else if (mediaUrl && !content) {
     displayContent = 'Shared a photo';
@@ -522,9 +515,7 @@ export function postMessageToThread(
     displayContent = 'Voice note dispatched';
   }
 
-  const resolvedMediaType = mediaType === 'call_log' 
-    ? 'call_log' 
-    : stickerCode 
+  const resolvedMediaType = stickerCode 
       ? 'sticker' 
       : mediaUrl 
         ? 'image' 
@@ -543,9 +534,6 @@ export function postMessageToThread(
     mediaType: resolvedMediaType,
     stickerCode,
     voiceDuration: isVoiceNote ? '0:16' : undefined,
-    callType: callData?.callType,
-    callDuration: callData?.callDuration,
-    callStatus: callData?.callStatus,
     reactions: []
   };
 

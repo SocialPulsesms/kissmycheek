@@ -189,29 +189,8 @@ async function runTests() {
       failedCount++;
     }
 
-    // TEST 6: WebRTC Session Signaling state updates
-    try {
-      const callSession = await prisma.callSession.create({
-        data: {
-          callerId: testUser1Id,
-          receiverId: testUser2Id,
-          sdpOffer: 'v=0\no=- 889219 2 IN IP4 127.0.0.1...',
-          status: 'RINGING'
-        }
-      });
-
-      assert(callSession.status === 'RINGING', 'Call Session initialized in RINGING status');
-      assert(callSession.sdpOffer !== null, 'SDP Offer signaling payload saved successfully');
-    } catch (err: any) {
-      console.error('Test 6 calling error:', err.message);
-      failedCount++;
-    }
-
     // Cleanup test database entries
     try {
-      await prisma.callSession.deleteMany({
-        where: { OR: [{ callerId: testUser1Id }, { receiverId: testUser1Id }] }
-      });
       await prisma.message.deleteMany({
         where: { senderId: { in: [testUser1Id, testUser2Id] } }
       });
@@ -238,7 +217,6 @@ async function runTests() {
     console.log('[SKIP] Test 3: Database User & Profile creation (Database Offline)');
     console.log('[SKIP] Test 4: Likes & Mutual Matches creation (Database Offline)');
     console.log('[SKIP] Test 5: Messaging & Conversation authorization (Database Offline)');
-    console.log('[SKIP] Test 6: WebRTC Session Signaling state updates (Database Offline)');
   }
 
   console.log(`\n=== TEST SUITE RUN COMPLETE ===`);

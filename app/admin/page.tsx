@@ -873,7 +873,7 @@ export default function AdminPage() {
                             <button
                               onClick={() => handleAdjustCredits(user.id, 500, user.email)}
                               className="px-2.5 py-1.5 rounded-xl bg-[#D4AF37]/15 hover:bg-[#D4AF37] border border-[#D4AF37]/40 text-[#D4AF37] hover:text-black font-bold text-[11px] transition-all flex items-center gap-1"
-                              title="Instantly grant 500 Credits for video calls & testing"
+                              title="Instantly grant 500 Credits for gifting & testing"
                             >
                               <CreditCard className="w-3.5 h-3.5" />
                               <span>+500</span>
@@ -1362,7 +1362,7 @@ export default function AdminPage() {
                   <CreditCard className="w-4 h-4" />
                   <span>Grant Date Credits (Zero-Barrier Testing)</span>
                 </h4>
-                <span className="text-[10px] text-white/50">Instantly funds user wallet for video dates</span>
+                <span className="text-[10px] text-white/50">Instantly funds user wallet for gifting</span>
               </div>
 
               {/* Quick Presets */}

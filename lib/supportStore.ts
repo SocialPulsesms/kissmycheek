@@ -56,7 +56,7 @@ export function generateAIConciergeAnswer(userPrompt: string): {
   if (query.includes('phone') || query.includes('number') || query.includes('private') || query.includes('confidential')) {
     return {
       category: 'DATING_SAFETY',
-      answer: `🛡️ **Your Phone Number is Strictly Confidential & 100% Private**\n\nAt Kiss My Cheek, your phone number is encrypted and **never** displayed on your public profile, Discover deck, Member Directory, or Naughty Zone.\n\n• Only you can view or edit your private phone number inside **Settings > Account**.\n• Other members can only interact with you through encrypted in-app dispatches and high-definition WebRTC video dates.\n• Your contact info is strictly protected by our VIP High-Society Privacy Protocols.`,
+      answer: `🛡️ **Your Phone Number is Strictly Confidential & 100% Private**\n\nAt Kiss My Cheek, your phone number is encrypted and **never** displayed on your public profile, Discover deck, Member Directory, or Naughty Zone.\n\n• Only you can view or edit your private phone number inside **Settings > Account**.\n• Other members can only interact with you through encrypted in-app dispatches.\n• Your contact info is strictly protected by our VIP High-Society Privacy Protocols.`,
       suggestedActions: [
         { label: 'View Account Settings', href: '/settings' },
         { label: 'Review Privacy Policy', href: '/settings' }
@@ -68,7 +68,7 @@ export function generateAIConciergeAnswer(userPrompt: string): {
   if (query.includes('elite') || query.includes('membership') || query.includes('tier') || query.includes('subscribe') || query.includes('price') || query.includes('cost') || query.includes('19500')) {
     return {
       category: 'MEMBERSHIP',
-      answer: `👑 **Kiss My Cheek Elite Circle Privileges (₦19,500 / Month)**\n\nUpgrading to the **Elite Circle** unlocks the pinnacle of luxury dating:\n\n• **Unlimited Private Dispatches**: Chat freely without the standard 5-message limit.\n• **4K Ultra-HD Video Dates**: Real-time encrypted video calling directly inside the platform.\n• **Unblur Admirers**: See everyone who liked your profile instantly in the *Matches* room.\n• **Incognito & Ghost Browsing**: Explore member directories without leaving footprint logs.\n• **Golden Crown Crest**: Verified high-status badge on your profile.\n• **10 Complimentary Super Likes & Boost** granted monthly.`,
+      answer: `👑 **Kiss My Cheek Elite Circle Privileges (₦19,500 / Month)**\n\nUpgrading to the **Elite Circle** unlocks the pinnacle of luxury dating:\n\n• **Unlimited Private Dispatches**: Chat freely without the standard 5-message limit.\n• **Unblur Admirers**: See everyone who liked your profile instantly in the *Matches* room.\n• **Incognito & Ghost Browsing**: Explore member directories without leaving footprint logs.\n• **Golden Crown Crest**: Verified high-status badge on your profile.\n• **10 Complimentary Super Likes & Boost** granted monthly.`,
       suggestedActions: [
         { label: 'Upgrade to Elite Circle', href: '/membership' },
         { label: 'Activate Profile Boost', href: '/boost' }
@@ -136,14 +136,14 @@ export function generateAIConciergeAnswer(userPrompt: string): {
     };
   }
 
-  // 8. 4K Video & Voice Calls WebRTC
+  // 8. Camera, microphone, and voice notes
   if (query.includes('call') || query.includes('video') || query.includes('audio') || query.includes('camera') || query.includes('microphone') || query.includes('webrtc')) {
     return {
       category: 'TECHNICAL',
-      answer: `📞 **Encrypted 4K Video Dates & Voice Signaling**\n\n• Calls are encrypted end-to-end utilizing secure peer-to-peer WebRTC signaling.\n• Both members must be verified club patrons to initiate dates.\n• Ensure you allow Camera and Microphone permissions in your browser or mobile device.\n• Call history and logs are archived confidentially in your Messages panel.`,
+      answer: `🎙️ **Camera, Microphone & Private Messaging**\n\nKiss My Cheek does not offer in-app voice or video calling. Members connect through encrypted private dispatches.\n\n• Camera access is used for live biometric selfie verification during signup and settings.\n• Microphone access is used for optional encrypted voice notes in Messages.\n• Allow those permissions in your browser or device settings if verification or voice notes are blocked.`,
       suggestedActions: [
-        { label: 'Open Messages & Calls', href: '/messages' },
-        { label: 'Test Camera Permissions', href: '/settings' }
+        { label: 'Open Messages', href: '/messages' },
+        { label: 'Biometric Scanner', href: '/settings' }
       ]
     };
   }

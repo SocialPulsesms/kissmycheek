@@ -109,7 +109,7 @@ export default function BoostPage() {
     setFlutterwaveItem({
       type: 'MEMBERSHIP',
       title: 'Elite Circle Membership',
-      subtitle: 'Unlimited HD Video Dates & VIP Privileges',
+      subtitle: 'Unlimited Dispatches & VIP Privileges',
       baseGBPPrice: ELITE_MONTHLY_PRICE_GBP,
       planTier: 'MONTHLY'
     });
@@ -299,7 +299,7 @@ export default function BoostPage() {
               </div>
               <h2 className="font-serif font-bold text-2xl text-white">Private Date Credits</h2>
               <p className="text-xs text-white/60 mt-0.5">
-                Use credits to dispatch bespoke gifts, access priority video dates, and book exclusive encounters.
+                Use credits to dispatch bespoke gifts and book exclusive encounters.
               </p>
             </div>
 
@@ -420,9 +420,9 @@ export default function BoostPage() {
                 <Crown className="w-6 h-6 text-[#D4AF37]" />
               </div>
               <div>
-                <h4 className="font-serif font-bold text-white text-lg">Prefer Unlimited Video Dates?</h4>
+                <h4 className="font-serif font-bold text-white text-lg">Prefer Unlimited Dispatches?</h4>
                 <p className="text-xs text-white/60 mt-0.5">
-                  Elite Members unlock unlimited 1080p & 4K Ultra streaming with zero credit burn per minute.
+                  Elite Members unlock unlimited private messaging and VIP club privileges.
                 </p>
               </div>
             </div>
@@ -467,7 +467,7 @@ export default function BoostPage() {
                   </span>
                 </div>
                 <p className="text-xs text-white/60 mt-0.5">
-                  Earn 60% cash royalties on all luxury virtual gifts sent to you during video dates and encrypted dispatches.
+                  Earn 60% cash royalties on all luxury virtual gifts sent to you in encrypted dispatches.
                 </p>
               </div>
             </div>

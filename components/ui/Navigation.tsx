@@ -95,8 +95,8 @@ export const Navigation: React.FC = () => {
     setIsProfileMenuOpen(false);
   }, [pathname]);
 
-  // Don't show global app navbar on onboarding, login, register, or active call pages
-  if (pathname === '/onboarding' || pathname === '/login' || pathname === '/register' || pathname?.startsWith('/call/')) return null;
+  // Don't show global app navbar on onboarding, login, or register
+  if (pathname === '/onboarding' || pathname === '/login' || pathname === '/register') return null;
 
   // Desktop Navigation links (no artificial static badge numbers)
   const desktopNavItems = [

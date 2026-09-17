@@ -1871,7 +1871,7 @@ export default function SettingsPage() {
                             <option value="VERIFICATION">Biometric Selfie & KYC Clearance</option>
                             <option value="NAUGHTY_ZONE">Naughty Zone ₦5M Prize Pool</option>
                             <option value="DATING_SAFETY">Member Safety & Privacy</option>
-                            <option value="TECHNICAL">4K Video Calling & Technical Support</option>
+                            <option value="TECHNICAL">App Technical Support</option>
                           </select>
                         </div>
 

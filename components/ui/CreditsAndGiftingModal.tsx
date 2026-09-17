@@ -761,10 +761,10 @@ export function CreditsAndGiftingModal({
 
                   <div className="p-3 rounded-2xl bg-black/60 border border-[#D4AF37]/30">
                     <span className="text-[#D4AF37] font-bold text-xs flex items-center gap-1.5 mb-1">
-                      <span>📹</span> 1080p & 4K Video Dates
+                      <span>💬</span> Unlimited Private Dispatches
                     </span>
                     <p className="text-[10px] text-white/70">
-                      Unlimited crystal-clear encrypted live video calling with zero credit deductions.
+                      Chat freely with verified members without the standard message cap.
                     </p>
                   </div>
 

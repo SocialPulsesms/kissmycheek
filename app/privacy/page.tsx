@@ -49,7 +49,7 @@ export default function PrivacyPolicyPage() {
             <ul className="space-y-2 list-disc list-inside text-white/70">
               <li><strong className="text-white">Account Information:</strong> Full name, verified email address, date of birth, gender, and contact details.</li>
               <li><strong className="text-white">Profile Details:</strong> Photographs, professional background, location preferences, bio, and curated lifestyle interests.</li>
-              <li><strong className="text-white">Real-Time Communications:</strong> Private dispatches, voice call connection logs, and 4K video date session signaling data. All audio and video streams utilize encrypted peer-to-peer WebRTC protocols and are never recorded without explicit consent.</li>
+              <li><strong className="text-white">Real-Time Communications:</strong> Private dispatches, stickers, photos, and optional encrypted voice notes exchanged through in-app messaging.</li>
               <li><strong className="text-white">Device & Diagnostics:</strong> Device model, operating system version, crash diagnostics, and anonymous session telemetry to maintain performance.</li>
             </ul>
           </section>
@@ -61,7 +61,7 @@ export default function PrivacyPolicyPage() {
             <p>We process member information strictly for the following purposes:</p>
             <ul className="space-y-1.5 list-disc list-inside text-white/70">
               <li>To facilitate matchmaking matches and verified member discovery.</li>
-              <li>To establish secure HD audio calls and 4K video date connections.</li>
+              <li>To deliver encrypted private messaging between verified members.</li>
               <li>To verify identity, prevent impersonation, and maintain club safety.</li>
               <li>To provide customer support and process member tier subscriptions.</li>
             </ul>

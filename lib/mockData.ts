@@ -70,10 +70,7 @@ export interface ChatMessage {
   isVoiceNote?: boolean;
   voiceDuration?: string;
   mediaUrl?: string;
-  mediaType?: 'image' | 'sticker' | 'video' | 'audio' | 'call_log';
-  callType?: 'voice' | 'video';
-  callDuration?: string;
-  callStatus?: 'completed' | 'missed' | 'declined';
+  mediaType?: 'image' | 'sticker' | 'video' | 'audio';
   stickerCode?: string;
   reactions?: MessageReaction[];
   read: boolean;

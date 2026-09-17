@@ -65,17 +65,13 @@ export async function GET(req: Request) {
             success: true,
             messages: messages.map(m => {
               const mem = memMsgMap.get(m.id);
-              const isCall = mem?.mediaType === 'call_log' || m.content.startsWith('📞') || m.content.startsWith('📹') || m.content.toLowerCase().includes('call ended') || m.content.toLowerCase().includes('video date');
               return {
                 id: m.id,
                 senderId: m.senderId,
                 content: m.content,
                 timestamp: m.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 mediaUrl: m.mediaUrl || undefined,
-                mediaType: isCall ? 'call_log' : (mem?.mediaType || undefined),
-                callType: isCall ? (mem?.callType || (m.content.includes('Voice') || m.content.startsWith('📞') ? 'voice' : 'video')) : undefined,
-                callDuration: isCall ? (mem?.callDuration || (m.content.includes('•') ? m.content.split('•')[1]?.trim() : m.content.includes('(') ? m.content.split('(')[1]?.replace(')', '') : undefined)) : undefined,
-                callStatus: isCall ? (mem?.callStatus || 'completed') : undefined,
+                mediaType: mem?.mediaType || undefined,
                 isVoiceNote: m.isVoiceNote,
                 read: true,
                 reactions: mem?.reactions || []
@@ -189,17 +185,13 @@ export async function GET(req: Request) {
                 unreadCount,
                 messages: messages.map(m => {
                   const mem = memMsgMap.get(m.id);
-                  const isCall = mem?.mediaType === 'call_log' || m.content.startsWith('📞') || m.content.startsWith('📹') || m.content.toLowerCase().includes('call ended') || m.content.toLowerCase().includes('video date');
                   return {
                     id: m.id,
                     senderId: m.senderId,
                     content: m.content,
                     timestamp: m.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     mediaUrl: m.mediaUrl || undefined,
-                    mediaType: isCall ? 'call_log' : (mem?.mediaType || undefined),
-                    callType: isCall ? (mem?.callType || (m.content.includes('Voice') || m.content.startsWith('📞') ? 'voice' : 'video')) : undefined,
-                    callDuration: isCall ? (mem?.callDuration || (m.content.includes('•') ? m.content.split('•')[1]?.trim() : m.content.includes('(') ? m.content.split('(')[1]?.replace(')', '') : undefined)) : undefined,
-                    callStatus: isCall ? (mem?.callStatus || 'completed') : undefined,
+                    mediaType: mem?.mediaType || undefined,
                     isVoiceNote: m.isVoiceNote,
                     read: isActive ? true : m.readAt !== null,
                     reactions: mem?.reactions || []
@@ -308,10 +300,7 @@ export async function POST(req: Request) {
       mediaUrl, 
       isVoiceNote, 
       stickerCode, 
-      mediaType,
-      callType,
-      callDuration,
-      callStatus
+      mediaType
     } = body;
 
     // 0. Mark thread as read action
@@ -459,15 +448,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Valid Recipient ID or Thread ID is required' }, { status: 400 });
     }
 
-    if ((targetRecipientId === currentUserId || (session?.userId && targetRecipientId === session.userId)) && mediaType !== 'call_log') {
+    if ((targetRecipientId === currentUserId || (session?.userId && targetRecipientId === session.userId))) {
       return NextResponse.json({ error: 'You cannot message yourself' }, { status: 400 });
     }
 
-    if (mediaType === 'call_log' && targetRecipientId === currentUserId) {
-      targetRecipientId = (recipientId && recipientId !== currentUserId) ? recipientId : (participantName ? `user_${participantName.toLowerCase().replace(/\s+/g, '_')}` : 'call_partner');
-    }
-
-    if (!content && !mediaUrl && !stickerCode && mediaType !== 'call_log') {
+    if (!content && !mediaUrl && !stickerCode) {
       return NextResponse.json({ error: 'Message content, media, or sticker is required' }, { status: 400 });
     }
 
@@ -526,7 +511,7 @@ export async function POST(req: Request) {
           });
         }
 
-        const resolvedContent = content || (mediaType === 'call_log' ? `${callType === 'voice' ? '📞 Voice Call' : '📹 Video Date'} ended (${callDuration || ''})` : stickerCode ? `Sticker ${stickerCode}` : mediaUrl ? 'Photo' : 'Voice note');
+        const resolvedContent = content || (stickerCode ? `Sticker ${stickerCode}` : mediaUrl ? 'Photo' : 'Voice note');
 
         await prisma.message.create({
           data: {
@@ -553,12 +538,7 @@ export async function POST(req: Request) {
       recipientData,
       currentUserId,
       targetRecipientId,
-      senderData,
-      {
-        callType,
-        callDuration,
-        callStatus
-      }
+      senderData
     );
 
     return NextResponse.json({

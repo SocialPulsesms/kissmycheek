@@ -48,7 +48,7 @@ export default function MembershipPage() {
       features: [
         'Unlimited swipes & rewinds',
         'See who liked your profile',
-        'HD Voice & Video Dating',
+        'Unlimited private dispatches',
         '1 Monthly Profile Boost'
       ]
     },
@@ -127,7 +127,7 @@ export default function MembershipPage() {
     setFlutterwaveItem({
       type: 'MEMBERSHIP',
       title: `${plan.name} (${billingCycle.toUpperCase()} Tier)`,
-      subtitle: `Unlock confidential club galas, 4K video dates, and VIP placement`,
+      subtitle: `Unlock confidential club galas, unlimited dispatches, and VIP placement`,
       baseGBPPrice: plan.baseGbp[billingCycle],
       planTier: billingCycle === 'annual' ? 'ANNUAL' : 'MONTHLY'
     });

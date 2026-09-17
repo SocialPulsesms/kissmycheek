@@ -50,7 +50,6 @@ export default function DeleteAccountPage() {
           <ul className="space-y-1.5 list-disc list-inside text-white/70">
             <li>Member profile information, photos, biography, and location settings.</li>
             <li>Direct message threads and private chat histories.</li>
-            <li>Voice call and 4K video date logs.</li>
             <li>Authentication records, verified email mappings, and device tokens.</li>
           </ul>
           <p className="text-xs text-white/50 pt-2 border-t border-white/10">

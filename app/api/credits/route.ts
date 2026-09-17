@@ -99,7 +99,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: 'Welcome to Elite Membership! 1080p and 4K Ultra video dates unlocked.',
+        message: 'Welcome to Elite Membership! Unlimited dispatches and VIP privileges unlocked.',
         wallet: {
           credits: wallet.credits,
           tier: 'ELITE',
@@ -183,7 +183,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // 3. SEND BESPOKE GIFT (During video date or messaging)
+    // 3. SEND BESPOKE GIFT (During messaging)
     if (action === 'send_gift') {
       const gift = BESPOKE_GIFTS.find(g => g.id === giftId);
       if (!gift) {
