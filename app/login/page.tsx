@@ -353,10 +353,10 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#020204] flex flex-col items-center justify-center px-4 py-6 sm:py-10 pt-[max(1.5rem,env(safe-area-inset-top,1.5rem))] pb-[max(1.5rem,env(safe-area-inset-bottom,1.5rem))] relative overflow-y-auto text-[#F4F4F6]">
+    <div className="min-h-screen bg-[#050507] flex flex-col items-center justify-center px-4 py-6 sm:py-10 pt-[max(1.5rem,env(safe-area-inset-top,1.5rem))] pb-[max(1.5rem,env(safe-area-inset-bottom,1.5rem))] relative overflow-y-auto text-[#F4F4F6]">
       
       {/* Thick Dark Luxury Vignette Lighting */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#010102] via-[#040407] to-[#010102] pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#050507] via-[#050507] to-[#020203] pointer-events-none" />
       <div className="absolute w-[600px] h-[600px] bg-gradient-to-tr from-[#D4AF37]/8 via-[#9A7B1C]/5 to-transparent rounded-full blur-[180px] pointer-events-none top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-50" />
 
       {/* Brand Header */}

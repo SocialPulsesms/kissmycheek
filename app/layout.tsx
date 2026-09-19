@@ -6,7 +6,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
-  themeColor: "#070709",
+  themeColor: "#050507",
 };
 
 export const metadata: Metadata = {
@@ -35,7 +35,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark scroll-smooth h-full" data-scroll-behavior="smooth" suppressHydrationWarning>
-      <body className="min-h-screen bg-[#070709] text-[#F4F4F6] font-sans antialiased selection:bg-[#D4AF37] selection:text-black flex flex-col" suppressHydrationWarning>
+      <head>
+        <link rel="preload" as="image" href="/crown-emblem.png" />
+      </head>
+      <body className="min-h-screen bg-[#050507] text-[#F4F4F6] font-sans antialiased selection:bg-[#D4AF37] selection:text-black flex flex-col" suppressHydrationWarning>
         <AppBackButtonHandler />
         <InactivityManager />
         <CallSessionManager />

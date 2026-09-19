@@ -22,10 +22,25 @@ public class MainActivity extends BridgeActivity {
 
         super.onCreate(savedInstanceState);
 
-        // Allow web view time to load its DOM while the crown emblem remains seamlessly visible
+        // Seamless transition: Keep native splash until the WebView commits its visible frame
+        if (getBridge() != null) {
+            getBridge().addWebViewListener(new com.getcapacitor.WebViewListener() {
+                @Override
+                public void onPageCommitVisible(android.webkit.WebView view, String url) {
+                    runOnUiThread(() -> isAppReady = true);
+                }
+
+                @Override
+                public void onPageLoaded(android.webkit.WebView view) {
+                    runOnUiThread(() -> isAppReady = true);
+                }
+            });
+        }
+
+        // Fallback timer ensures splash never hangs if network is delayed
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             isAppReady = true;
-        }, 1200);
+        }, 2200);
 
         checkAudioVideoPermissions();
         setupWebViewMediaSettings();
